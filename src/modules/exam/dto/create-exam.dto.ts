@@ -76,8 +76,8 @@ export class CreateExamDto {
     description: 'Lecturer ID who created the exam',
     example: '6611ae9459928430fb3cf7b1',
   })
-  @IsNotEmpty()
-  lecturer: string;
+  @IsOptional()
+  lecturer?: string;
 
   @ApiProperty({
     description: 'Exam format structure',

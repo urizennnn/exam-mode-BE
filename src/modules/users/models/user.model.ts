@@ -1,9 +1,10 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument } from 'mongoose';
 import { hash } from 'argon2';
+import { IUser } from '../interface';
 
 @Schema({ collection: 'users', timestamps: true })
-export class User {
+export class User implements IUser {
   @Prop({ required: true, unique: true })
   email: string;
 

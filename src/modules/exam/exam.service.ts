@@ -7,6 +7,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Exam, ExamDocument } from './models/exam.model';
 import { CreateExamDto } from './dto/create-exam.dto';
+import { NeedsAuth } from 'src/common';
 
 @Injectable()
 export class ExamService {
@@ -50,5 +51,16 @@ export class ExamService {
       throw new NotFoundException('Exam not found');
     }
     return { message: 'Exam deleted successfully' };
+  }
+
+  async deleteManyExams(examIds: string[]) {
+    const objectIds = examIds.map((id) => new Types.ObjectId(id));
+    const result = await this.examModel
+      .deleteMany({ _id: { $in: objectIds } })
+      .exec();
+    if (result.deletedCount === 0) {
+      throw new NotFoundException('No exams found for the provided IDs');
+    }
+    return { message: 'Exams deleted successfully' };
   }
 }
