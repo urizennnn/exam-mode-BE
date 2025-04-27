@@ -6,15 +6,27 @@ import 'dotenv/config';
 @Injectable()
 export class ProcessService {
   private ai: GoogleGenerativeAI;
-  private readonly prompt =
-    "You will be an exam pdf parser, that will receive a bunch of extracted pdf text and return an array of questions and it's answers in such a way that each array contains the questions and the options given for that questions. This is the first assumption, for the second you will return the same thing but if there are no questions for it return them as they are but still in array format. Return only this array and nothing else.";
+  private readonly prompt = `You are an exam PDF parser receiving raw extracted PDF text.
+Return a JSON array. Each element MUST be an object with:
+{
+  "type": "multiple-choice" | "theory",
+  "question": "<exact question text>",
+  "options": ["<option 1>", "<option 2>", ...],
+  "answer": "<exact answer text>"
+}
+Rules:
+- Detect the question type accurately.
+- Do NOT paraphrase or modify any part of the question, options, or answer.
+- For theory questions, never invent answers; include "answer" only when it appears verbatim in the source.
+- If no questions are present, return an empty array.
+Return ONLY the JSON array—no markdown fences, no extra text.`;
   private readonly model: GenerativeModel;
 
   constructor() {
     if (!process.env.GEMINI_KEY) {
       throw new Error('GEMINI_KEY must be defined in environment variables.');
     }
-    this.ai = new GoogleGenerativeAI(process.env.GEMINI_KEY as string);
+    this.ai = new GoogleGenerativeAI(process.env.GEMINI_KEY);
     this.model = this.ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
   }
 
@@ -23,38 +35,31 @@ export class ProcessService {
       if (!file) {
         throw new BadRequestException('No file provided');
       }
-
       if (file.mimetype !== 'application/pdf') {
         throw new BadRequestException('Invalid file type: only PDF is allowed');
       }
-
-      const text = await pdfparse(file.buffer);
-      const extracted = text.text.trim();
-
-      const result = await this.model.generateContent([this.prompt, extracted]);
-      let res = result.response.text();
-
-      res = res.replaceAll('```json', '').replaceAll('```', '');
-
+      const parsedPdf = await pdfparse(file.buffer);
+      const extractedText = parsedPdf.text.trim();
+      const geminiResponse = await this.model.generateContent([
+        this.prompt,
+        extractedText,
+      ]);
+      let raw = geminiResponse.response
+        .text()
+        .replace(/```json/gi, '')
+        .replace(/```/g, '')
+        .trim();
+      raw = raw
+        .split('\n')
+        .filter((line) => line.trim() !== ',')
+        .join('\n');
       try {
-        let parsed = JSON.parse(res);
-
-        if (Array.isArray(parsed)) {
-          if (
-            parsed.length > 0 &&
-            typeof parsed[0] === 'object' &&
-            !Array.isArray(parsed[0])
-          ) {
-            parsed = parsed.map((obj) => Object.values(obj));
-          }
-          return parsed;
-        }
-
-        return parsed;
-      } catch (parseError) {
-        return res;
+        const json = JSON.parse(raw);
+        return json;
+      } catch {
+        return raw;
       }
-    } catch (e) {
+    } catch (e: any) {
       throw new BadRequestException(e.message);
     }
   }

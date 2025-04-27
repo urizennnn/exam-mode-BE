@@ -3,15 +3,29 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ProcessModule } from './modules/process/process.module';
 import { MulterModule } from '@nestjs/platform-express';
+import { UserModule } from './modules/users/user.module';
+import { ExamModule } from './modules/exam/exam.module';
+import { JwtModule } from '@nestjs/jwt';
+import { MongooseModule } from '@nestjs/mongoose';
 
 @Module({
   imports: [
     MulterModule.registerAsync({
+      useFactory: () => ({ dest: './uploads' }),
+    }),
+
+    JwtModule.registerAsync({
+      global: true,
       useFactory: () => ({
-        dest: './uploads',
+        secret: process.env.JWT_SECRET ?? 'dev-secret',
+        signOptions: { expiresIn: '1d' },
       }),
     }),
+
+    MongooseModule.forRoot(process.env.URI!),
     ProcessModule,
+    UserModule,
+    ExamModule,
   ],
   controllers: [AppController],
   providers: [AppService],
