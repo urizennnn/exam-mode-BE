@@ -1,6 +1,13 @@
-import { Controller, Post, Body } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Req,
+  BadRequestException,
+} from '@nestjs/common';
 import { UserService } from './user.service';
 import { CreateUserDto, LoginUserDto } from './dto/user.dto';
+import { Request } from 'express';
 
 @Controller('users')
 export class UserController {
@@ -17,7 +24,11 @@ export class UserController {
   }
 
   @Post('logout')
-  async logout() {
-    return this.userService.logout();
+  async logout(@Req() req: Request) {
+    const lectureId = req.user?.email;
+    if (!lectureId) {
+      throw new BadRequestException('Lecturer ID is required');
+    }
+    return this.userService.logout(lectureId);
   }
 }

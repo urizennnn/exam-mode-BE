@@ -42,6 +42,7 @@ export class UserService {
 
     const passwordValid = await verify(user.password, dto.password);
     if (!passwordValid) throw new UnauthorizedException('Invalid credentials');
+    await this.userModel.updateOne({ email: dto.email }, { isSignedIn: true });
 
     const payload = { sub: user._id.toString(), email: user.email };
     const token = await this.jwtService.signAsync(payload);
@@ -49,7 +50,8 @@ export class UserService {
     return { access_token: token };
   }
 
-  async logout(): Promise<{ message: string }> {
+  async logout(id: string): Promise<{ message: string }> {
+    await this.userModel.updateOne({ id: id }, { isSignedIn: false });
     return { message: 'User logged out' };
   }
 }

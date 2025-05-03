@@ -6,6 +6,7 @@ import {
   Body,
   Delete,
   Req,
+  Patch,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { ExamService } from './exam.service';
@@ -38,7 +39,7 @@ export class ExamController {
   async deleteExam(@Param('id') id: string) {
     return this.examService.deleteExam(id);
   }
-  @Delete('/delete/many')
+  @Patch('/delete/many')
   async deleteManyExams(@Body() ids: string[]) {
     return this.examService.deleteManyExams(ids);
   }
