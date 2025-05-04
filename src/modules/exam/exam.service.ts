@@ -1,13 +1,8 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Exam, ExamDocument } from './models/exam.model';
 import { CreateExamDto } from './dto/create-exam.dto';
-import { NeedsAuth } from 'src/common';
 
 @Injectable()
 export class ExamService {
@@ -20,19 +15,20 @@ export class ExamService {
       .findOne({ examKey: dto.examKey })
       .exec();
     if (existingExam) {
-      throw new BadRequestException('Exam key already exists');
+      existingExam.set({
+        ...dto,
+        lecturer: new Types.ObjectId(dto.lecturer),
+      });
+      await existingExam.save();
+      return { message: 'Exam updated successfully' };
     }
-
     const newExam = new this.examModel({
       ...dto,
       lecturer: new Types.ObjectId(dto.lecturer),
     });
-
     await newExam.save();
-
     return { message: 'Exam created successfully' };
   }
-
   async getExamById(examId: string) {
     const exam = await this.examModel.findById(examId).exec();
     if (!exam) {
