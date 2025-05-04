@@ -1,11 +1,20 @@
 import * as pdfparse from 'pdf-parse';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { GenerativeModel, GoogleGenerativeAI } from '@google/generative-ai';
+import { execFileSync } from 'node:child_process';
 import 'dotenv/config';
+
+async function safeExtract(buffer: Buffer): Promise<string> {
+  const { text } = await pdfparse(buffer);
+  if (text.trim()) return text;
+  const stdout = execFileSync('pdftotext', ['-', '-'], { input: buffer });
+  return stdout.toString('utf8');
+}
 
 @Injectable()
 export class ProcessService {
-  private ai: GoogleGenerativeAI;
+  private readonly ai: GoogleGenerativeAI;
+  private readonly model: GenerativeModel;
   private readonly prompt = `You are an exam PDF parser receiving raw extracted PDF text.
 Return a JSON array. Each element MUST be an object with:
 {
@@ -20,7 +29,6 @@ Rules:
 - For theory questions, never invent answers; include "answer" only when it appears verbatim in the source.
 - If no questions are present, return an empty array.
 Return ONLY the JSON array—no markdown fences, no extra text.`;
-  private readonly model: GenerativeModel;
 
   constructor() {
     if (!process.env.GEMINI_KEY) {
@@ -31,31 +39,31 @@ Return ONLY the JSON array—no markdown fences, no extra text.`;
   }
 
   async processPdf(file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file provided');
+    if (file.mimetype !== 'application/pdf') {
+      throw new BadRequestException('Invalid file type: only PDF is allowed');
+    }
     try {
-      if (!file) {
-        throw new BadRequestException('No file provided');
-      }
-      if (file.mimetype !== 'application/pdf') {
-        throw new BadRequestException('Invalid file type: only PDF is allowed');
-      }
-      const parsedPdf = await pdfparse(file.buffer);
-      const extractedText = parsedPdf.text.trim();
+      const extractedText = (await safeExtract(file.buffer)).trim();
+      if (!extractedText)
+        throw new BadRequestException('No text found in the PDF');
+
       const geminiResponse = await this.model.generateContent([
         this.prompt,
         extractedText,
       ]);
-      let raw = geminiResponse.response
+
+      const raw = geminiResponse.response
         .text()
         .replace(/```json/gi, '')
         .replace(/```/g, '')
-        .trim();
-      raw = raw
+        .trim()
         .split('\n')
         .filter((line) => line.trim() !== ',')
         .join('\n');
+
       try {
-        const json = JSON.parse(raw);
-        return json;
+        return JSON.parse(raw) as unknown;
       } catch {
         return raw;
       }
