@@ -14,7 +14,7 @@ export class User implements IUser {
   @Prop({ required: true })
   name: string;
 
-  @Prop({ default: false,type: Boolean })
+  @Prop({ default: false, type: Boolean })
   isSignedIn?: boolean | undefined;
 }
 
