@@ -50,6 +50,9 @@ export class Exam {
   @Prop({ required: false, type: [String] })
   invites: string[];
 
+  @Prop({ required: false })
+  link: string;
+
   @Prop()
   file?: string;
 
@@ -75,7 +78,7 @@ ExamSchema.pre<ExamDocument>('save', async function (next) {
       sg.send({
         to,
         subject: `Invitation to take exam: ${this.examName}`,
-        html: `<p>You have been invited to take the exam <strong>${this.examName}</strong>.</p><p>Your access key is: <strong>${this.examKey}</strong></p>`,
+        html: `<p>You have been invited to take the exam <strong>${this.examName}</strong>.</p><p>Please click on this link: <strong>${this.link}</strong></p>`,
       }),
     ),
   );
