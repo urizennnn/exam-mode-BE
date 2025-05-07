@@ -1,13 +1,20 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Exam, ExamDocument } from './models/exam.model';
 import { CreateExamDto } from './dto/create-exam.dto';
+import { Invite } from './dto/invite-students.dto';
+import { User, UserDocument } from '../users/models/user.model';
 
 @Injectable()
 export class ExamService {
   constructor(
     @InjectModel(Exam.name) private readonly examModel: Model<ExamDocument>,
+    @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
   ) {}
 
   async createExam(dto: CreateExamDto) {
@@ -58,5 +65,27 @@ export class ExamService {
       throw new NotFoundException('No exams found for the provided IDs');
     }
     return { message: 'Exams deleted successfully' };
+  }
+
+  async updateExam(examId: string, dto: Invite, lecturer: Types.ObjectId) {
+    const exam = await this.examModel.findById(examId).exec();
+    if (!exam) {
+      throw new NotFoundException('Exam not found');
+    }
+    const user = await this.userModel.findById(lecturer);
+    if (!user) {
+      throw new NotFoundException('User not Found');
+    }
+    if (exam.lecturer !== lecturer) {
+      return new BadRequestException(
+        'User does not have permission to send invitiation',
+      );
+    }
+    exam.set({
+      ...dto,
+      invites: dto.emails,
+    });
+    await exam.save();
+    return { message: 'Exam updated successfully' };
   }
 }

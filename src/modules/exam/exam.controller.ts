@@ -7,11 +7,14 @@ import {
   Delete,
   Req,
   Patch,
+  Put,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { ExamService } from './exam.service';
 import { CreateExamDto } from './dto/create-exam.dto';
 import { NeedsAuth } from 'src/common';
+import { Invite } from './dto/invite-students.dto';
+import { Types } from 'mongoose';
 
 @Controller('exams')
 export class ExamController {
@@ -42,5 +45,17 @@ export class ExamController {
   @Patch('/delete/many')
   async deleteManyExams(@Body() ids: string[]) {
     return this.examService.deleteManyExams(ids);
+  }
+
+  @NeedsAuth()
+  @Put('/invite/:id')
+  async updateExam(
+    @Param('id') id: string,
+    @Body() dto: Invite,
+    @Req() req: Request,
+  ) {
+    const user = req.user?.id as Types.ObjectId;
+    const lecturer = user;
+    return this.examService.updateExam(id, dto, lecturer);
   }
 }
