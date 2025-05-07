@@ -1,8 +1,10 @@
 import 'express';
-import { User, UserDocument } from 'src/modules/users/models/user.model';
+import { Types } from 'mongoose';
 
 declare module 'express' {
   export interface Request {
-    user?: UserDocument;
+    user?: {
+      id: Types.ObjectId;
+    };
   }
 }

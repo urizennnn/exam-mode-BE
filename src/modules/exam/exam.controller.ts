@@ -14,7 +14,6 @@ import { ExamService } from './exam.service';
 import { CreateExamDto } from './dto/create-exam.dto';
 import { NeedsAuth } from 'src/common';
 import { Invite } from './dto/invite-students.dto';
-import { Types } from 'mongoose';
 
 @Controller('exams')
 export class ExamController {
@@ -23,8 +22,8 @@ export class ExamController {
   @NeedsAuth()
   @Post()
   async createExam(@Body() dto: CreateExamDto, @Req() req: Request) {
-    const user = req.user;
-    dto.lecturer = user?.id;
+    const user = req.user!.id;
+    dto.lecturer = user as unknown as string;
     return this.examService.createExam(dto);
   }
 
@@ -54,8 +53,7 @@ export class ExamController {
     @Body() dto: Invite,
     @Req() req: Request,
   ) {
-    const user = req.user?.id as Types.ObjectId;
-    const lecturer = user;
-    return this.examService.updateExam(id, dto, lecturer);
+    const user = req.user!.id;
+    return this.examService.updateExam(id, dto, user);
   }
 }

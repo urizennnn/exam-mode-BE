@@ -25,7 +25,7 @@ export class UserController {
 
   @Post('logout')
   async logout(@Req() req: Request) {
-    const lectureId = req.user?.email;
+    const lectureId = req.user?.id;
     if (!lectureId) {
       throw new BadRequestException('Lecturer ID is required');
     }

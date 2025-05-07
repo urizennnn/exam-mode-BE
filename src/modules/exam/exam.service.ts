@@ -69,21 +69,26 @@ export class ExamService {
 
   async updateExam(examId: string, dto: Invite, lecturer: Types.ObjectId) {
     const exam = await this.examModel.findById(examId).exec();
-    if (!exam) {
-      throw new NotFoundException('Exam not found');
-    }
-    const user = await this.userModel.findById(lecturer);
-    if (!user) {
-      throw new NotFoundException('User not Found');
-    }
-    if (exam.lecturer !== lecturer) {
-      return new BadRequestException(
-        'User does not have permission to send invitiation',
+    if (!exam) throw new NotFoundException('Exam not found');
+
+    const user = await this.userModel.findById(lecturer).exec();
+    if (!user) throw new NotFoundException('User not Found');
+
+    if (!exam.lecturer.equals(lecturer)) {
+      throw new BadRequestException(
+        'User does not have permission to send invitation',
       );
     }
-    exam.set({
-      ...dto,
-      invites: dto.emails,
+
+    dto.emails.forEach((email) => {
+      if (!email.includes('@')) {
+        throw new BadRequestException('Invalid email address');
+      }
+      if (exam.invites.includes(email.toLowerCase())) {
+        throw new BadRequestException('Email already invited');
+      }
+      email.toLowerCase();
+      exam.invites.push(email);
     });
     await exam.save();
     return { message: 'Exam updated successfully' };

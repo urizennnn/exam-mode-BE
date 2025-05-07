@@ -4,7 +4,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { verify } from 'argon2';
 import { JwtService } from '@nestjs/jwt';
 import { User, UserDocument } from './models/user.model';
@@ -50,7 +50,7 @@ export class UserService {
     return { access_token: token };
   }
 
-  async logout(id: string): Promise<{ message: string }> {
+  async logout(id: Types.ObjectId): Promise<{ message: string }> {
     await this.userModel.updateOne({ id: id }, { isSignedIn: false });
     return { message: 'User logged out' };
   }
