@@ -32,7 +32,7 @@ export class ProcessController {
     @Param('examKey') examKey: string,
     @Query('email') email: string,
     @Query('studentAnswer') studentAnswer: string,
-  ): Promise<string> {
+  ) {
     return this.service.markPdf(file, examKey, email, studentAnswer);
   }
 }

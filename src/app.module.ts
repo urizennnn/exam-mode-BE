@@ -7,6 +7,8 @@ import { UserModule } from './modules/users/user.module';
 import { ExamModule } from './modules/exam/exam.module';
 import { JwtModule } from '@nestjs/jwt';
 import { MongooseModule } from '@nestjs/mongoose';
+import { QueueModule } from './lib/queue/queue.module';
+import 'dotenv/config';
 
 @Module({
   imports: [
@@ -26,6 +28,7 @@ import { MongooseModule } from '@nestjs/mongoose';
     ProcessModule,
     UserModule,
     ExamModule,
+    QueueModule,
   ],
   controllers: [AppController],
   providers: [AppService],
