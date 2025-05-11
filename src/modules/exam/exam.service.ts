@@ -44,6 +44,7 @@ export class ExamService {
     return exam;
   }
 
+
   async getAllExams() {
     return this.examModel.find().exec();
   }
