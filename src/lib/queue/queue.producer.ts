@@ -1,31 +1,43 @@
 import { Injectable } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { PDF_QUEUE, PdfJobs } from 'src/utils/constants';
+import {
+  PDF_QUEUE,
+  PdfJobs,
+  MarkJobData,
+  ParseJobData,
+} from 'src/utils/constants';
+import { randomUUID } from 'node:crypto';
 
-interface ParsePayload {
-  tmpPath: string;
-}
-
-interface MarkPayload extends ParsePayload {
-  examKey: string;
-  email: string;
-  studentAnswer: string;
-}
+const ONE_HOUR = 60 * 60;
+const ONE_DAY = 24 * ONE_HOUR;
 
 @Injectable()
 export class PdfQueueProducer {
   constructor(@InjectQueue(PDF_QUEUE) private readonly queue: Queue) {}
 
-  async enqueueParse(tmpPath: string) {
-    return this.queue.add(PdfJobs.PARSE, { tmpPath });
+  enqueueProcess(data: ParseJobData) {
+    return this.queue.add(PdfJobs.PROCESS, data, {
+      attempts: 3,
+      backoff: {
+        type: 'exponential',
+        delay: 1000,
+      },
+      jobId: randomUUID(),
+      removeOnComplete: { age: ONE_HOUR },
+      removeOnFail: true,
+    });
   }
 
-  async enqueueMark(data: MarkPayload) {
-    return this.queue.add(PdfJobs.MARK, data);
-  }
-
-  async enqueueProcessPdf(data: Express.Multer.File) {
-    return this.queue.add(PdfJobs.PROCESS, data);
+  enqueueMark(data: MarkJobData) {
+    return this.queue.add(PdfJobs.MARK, data, {
+      attempts: 3,
+      backoff: {
+        type: 'exponential',
+        delay: 1000,
+      },
+      jobId: randomUUID(),
+      removeOnFail: true,
+    });
   }
 }
