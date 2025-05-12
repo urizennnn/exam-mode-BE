@@ -56,4 +56,13 @@ export class ExamController {
     const user = req.user!.id;
     return this.examService.updateExam(id, dto, user);
   }
+
+  @Post(':key')
+  async getExamBykey(
+    @Param('key') key: string,
+    @Body() email: { email: string },
+  ) {
+    console.log('body', email);
+    return this.examService.getExamByKey(key, email.email);
+  }
 }

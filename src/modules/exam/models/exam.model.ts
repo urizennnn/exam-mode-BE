@@ -80,14 +80,13 @@ ExamSchema.pre<ExamDocument>('save', async function (next) {
     this.invites = this.invites.map((invite) => invite.toLowerCase());
     const sg = new SendgridService(new ConfigService());
     const URL: string = cfg.getOrThrow('URL');
-    const link =
-      this.link || `${URL}/student/${this.id as string}?mode=student`;
+    const link = this.link || `${URL}/student/login`;
     await Promise.all(
       this.invites.map((to) =>
         sg.send({
           to,
           subject: `Invitation to take exam: ${this.examName}`,
-          html: `<p>You have been invited to take the exam <strong>${this.examName}</strong>.</p><p>Please click on this link: <strong>${link}</strong></p>`,
+          html: `<p>You have been invited to take the exam <strong>${this.examName}</strong>.</p><p>Please click on this link: <strong>${link}</strong></p> <br> Here is your exam key: <strong>${this.examKey}</strong></p>`,
         }),
       ),
     );

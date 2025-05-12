@@ -44,7 +44,6 @@ export class ExamService {
     return exam;
   }
 
-
   async getAllExams() {
     return this.examModel.find().exec();
   }
@@ -93,5 +92,16 @@ export class ExamService {
     });
     await exam.save();
     return { message: 'Exam updated successfully' };
+  }
+
+  async getExamByKey(examKey: string, email: string) {
+    const exam = await this.examModel.findOne({ examKey }).exec();
+    if (!exam) {
+      throw new NotFoundException('Exam not found');
+    }
+    if (!exam.invites.includes(email.toLowerCase())) {
+      throw new BadRequestException('Email not invited');
+    }
+    return exam;
   }
 }
