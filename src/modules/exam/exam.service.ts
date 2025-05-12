@@ -9,12 +9,14 @@ import { Exam, ExamDocument } from './models/exam.model';
 import { CreateExamDto } from './dto/create-exam.dto';
 import { Invite } from './dto/invite-students.dto';
 import { User, UserDocument } from '../users/models/user.model';
+import { JwtService } from '@nestjs/jwt';
 
 @Injectable()
 export class ExamService {
   constructor(
     @InjectModel(Exam.name) private readonly examModel: Model<ExamDocument>,
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
+    private readonly jwtService: JwtService,
   ) {}
 
   async createExam(dto: CreateExamDto) {
@@ -94,14 +96,15 @@ export class ExamService {
     return { message: 'Exam updated successfully' };
   }
 
-  async getExamByKey(examKey: string, email: string) {
-    const exam = await this.examModel.findOne({ examKey }).exec();
+  async studentLogin(examKey: string, email: string) {
+    const exam = await this.examModel.findOne({ examKey: examKey }).exec();
     if (!exam) {
       throw new NotFoundException('Exam not found');
     }
     if (!exam.invites.includes(email.toLowerCase())) {
       throw new BadRequestException('Email not invited');
     }
-    return exam;
+    const token = await this.jwtService.signAsync({ email, mode: 'student' });
+    return { access_token: token, exam };
   }
 }

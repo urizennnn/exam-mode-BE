@@ -16,7 +16,11 @@ import { User } from 'src/modules/users/models/user.model';
 import { Model, FilterQuery, Types } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
 
-export type JwtPayload = Pick<User & Document, 'email'>;
+export type JwtPayload = {
+  email: string;
+  mode: 'lecturer' | 'student';
+  sub?: string;
+};
 
 export interface AuthenticatedRequest extends Request {
   user: {
@@ -110,10 +114,8 @@ export class JwtGuard extends AuthGuard('jwt') implements CanActivate {
       payload = await this.utils.verifyAndValidateToken(token);
     } catch (err) {
       if (err instanceof HttpException && err.message === 'Token has expired') {
-        const decoded = this.utils.jwtService.decode(
-          token,
-        ) as JwtPayload | null;
-        if (decoded?.email) {
+        const decoded: JwtPayload = this.utils.jwtService.decode(token);
+        if (decoded?.email && decoded.mode === 'lecturer') {
           await this.userModel.updateOne(
             { email: decoded.email },
             { isSignedIn: false },

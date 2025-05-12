@@ -54,14 +54,32 @@ export class ProcessService {
     model: 'gemini-2.0-flash',
   });
 
+  private readonly markPrompt = `
+You are an exam PDF parser. You’ll receive raw extracted text containing exam questions, the correct answers, and a student’s responses. Your task:
+1. Identify every question.
+2. Compare the student’s answer to the correct answer for each.
+3. Calculate the total correct responses.
+4. Return ONLY the result as a fraction in the form X/Y, where Y is the total number of questions.
+Do not include any other text or explanation.
+`.trim();
+
+  // used by processPdf()
   private readonly parsePrompt = `
 You are an exam PDF parser receiving raw extracted PDF text.
-Return ONLY a JSON array of questions with type, question, options and answer.`.trim();
-
-  private readonly markPrompt = `
-You receive raw exam text + student responses.
-Return ONLY the score as X/Y.`.trim();
-
+Return a JSON array. Each element MUST be an object with:
+{
+  "type": "multiple-choice" | "theory",
+  "question": "<exact question text>",
+  "options": ["<option 1>", "<option 2>", ...],
+  "answer": "<exact answer text>"
+}
+Rules:
+- Detect the question type accurately.
+- Do NOT paraphrase or modify any part of the question, options, or answer.
+- For theory questions, never invent answers; include "answer" only when it appears verbatim in the source.
+- If no questions are present, return an empty array.
+Return ONLY the JSON array—no markdown fences, no extra text.
+`.trim();
   constructor(
     @InjectModel(Exam.name) private readonly examModel: Model<ExamDocument>,
     private readonly producer: PdfQueueProducer,

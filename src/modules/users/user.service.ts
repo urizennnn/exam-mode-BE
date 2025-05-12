@@ -44,7 +44,11 @@ export class UserService {
     if (!passwordValid) throw new UnauthorizedException('Invalid credentials');
     await this.userModel.updateOne({ email: dto.email }, { isSignedIn: true });
 
-    const payload = { sub: user._id.toString(), email: user.email };
+    const payload = {
+      sub: user._id.toString(),
+      email: user.email,
+      mode: 'lecturer',
+    };
     const token = await this.jwtService.signAsync(payload);
 
     return { access_token: token };

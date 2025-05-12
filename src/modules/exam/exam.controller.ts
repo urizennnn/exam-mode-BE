@@ -58,11 +58,12 @@ export class ExamController {
   }
 
   @Post(':key')
-  async getExamBykey(
+  async studentLogin(
     @Param('key') key: string,
     @Body() email: { email: string },
   ) {
     console.log('body', email);
-    return this.examService.getExamByKey(key, email.email);
+    console.log('key', key);
+    return this.examService.studentLogin(key, email.email);
   }
 }

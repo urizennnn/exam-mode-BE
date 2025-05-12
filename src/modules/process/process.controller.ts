@@ -35,6 +35,7 @@ export class ProcessController {
     @Query('email') email: string,
     @Query('studentAnswer') studentAnswer: string,
   ): Promise<{ jobId: string | undefined; message: string }> {
+    console.log('hit');
     return this.service.enqueueMarkPdf(file, examKey, email, studentAnswer);
   }
 
