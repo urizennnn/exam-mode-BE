@@ -10,7 +10,6 @@ import {
 import { randomUUID } from 'node:crypto';
 
 const ONE_HOUR = 60 * 60;
-const ONE_DAY = 24 * ONE_HOUR;
 
 @Injectable()
 export class PdfQueueProducer {
