@@ -1,13 +1,25 @@
 import * as pdfparse from 'pdf-parse';
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { GenerativeModel, GoogleGenerativeAI } from '@google/generative-ai';
 import { execFileSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
-import 'dotenv/config';
-import { Exam, ExamDocument } from '../exam/models/exam.model';
-import { Model } from 'mongoose';
+import { writeFile, readFile, unlink } from 'node:fs/promises';
 import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+
+import { PDF_QUEUE, ParseJobData, MarkJobData } from 'src/utils/constants';
+import { Exam, ExamDocument } from '../exam/models/exam.model';
+import { PdfQueueProducer } from 'src/lib/queue/queue.producer';
 import { Submissions } from '../exam/interfaces/exam.interface';
+
+const log = new Logger('ProcessService');
 
 const originalWarn = console.warn;
 function filterWarn(...msg: unknown[]) {
@@ -23,11 +35,10 @@ async function safeExtract(buffer: Buffer): Promise<string> {
     const { text } = await pdfparse(buffer);
     if (text.trim()) return text;
   } catch {
-    // swallow
+    // ignore
   } finally {
     console.warn = originalWarn;
   }
-
   const stdout = execFileSync(
     'pdftotext',
     ['-q', '-enc', 'UTF-8', '-layout', '-', '-'],
@@ -42,122 +53,159 @@ export class ProcessService {
   private readonly model: GenerativeModel = this.ai.getGenerativeModel({
     model: 'gemini-2.0-flash',
   });
+
+  private readonly parsePrompt = `
+You are an exam PDF parser receiving raw extracted PDF text.
+Return ONLY a JSON array of questions with type, question, options and answer.`.trim();
+
+  private readonly markPrompt = `
+You receive raw exam text + student responses.
+Return ONLY the score as X/Y.`.trim();
+
   constructor(
     @InjectModel(Exam.name) private readonly examModel: Model<ExamDocument>,
+    private readonly producer: PdfQueueProducer,
+    @InjectQueue(PDF_QUEUE) private readonly queue: Queue,
   ) {}
 
-  // used by markPdf()
-  private readonly markPrompt = `
-You are an exam PDF parser. You’ll receive raw extracted text containing exam questions, the correct answers, and a student’s responses. Your task:
-1. Identify every question.
-2. Compare the student’s answer to the correct answer for each.
-3. Calculate the total correct responses.
-4. Return ONLY the result as a fraction in the form X/Y, where Y is the total number of questions.
-Do not include any other text or explanation.
-`.trim();
-
-  // used by processPdf()
-  private readonly prompt = `
-You are an exam PDF parser receiving raw extracted PDF text.
-Return a JSON array. Each element MUST be an object with:
-{
-  "type": "multiple-choice" | "theory",
-  "question": "<exact question text>",
-  "options": ["<option 1>", "<option 2>", ...],
-  "answer": "<exact answer text>"
-}
-Rules:
-- Detect the question type accurately.
-- Do NOT paraphrase or modify any part of the question, options, or answer.
-- For theory questions, never invent answers; include "answer" only when it appears verbatim in the source.
-- If no questions are present, return an empty array.
-Return ONLY the JSON array—no markdown fences, no extra text.
-`.trim();
-
-  private async generateWithRetry(
-    messages: string[],
-    attempt = 1,
-  ): Promise<string> {
-    try {
-      const res = await this.model.generateContent(messages);
-      return res.response.text();
-    } catch (e) {
-      if (attempt >= 3) throw e;
-      await sleep(500 * attempt);
-      return this.generateWithRetry(messages, attempt + 1);
-    }
+  async enqueueProcessPdf(file: Express.Multer.File) {
+    this.validateFile(file);
+    const tmpPath = `/tmp/${Date.now()}-${file.originalname}`;
+    await writeFile(tmpPath, file.buffer);
+    const job = await this.producer.enqueueProcess({ tmpPath });
+    log.verbose(`Queued parse job ${job.id} for ${file.originalname}`);
+    return { jobId: job.id };
   }
 
-  async processPdf(file: Express.Multer.File) {
-    if (!file) throw new BadRequestException('No file provided');
-    if (file.mimetype !== 'application/pdf')
-      throw new BadRequestException('Invalid file type: only PDF is allowed');
-
-    const extractedText = (await safeExtract(file.buffer)).trim();
-    if (!extractedText)
-      throw new BadRequestException('No text found in the PDF');
-
-    let raw: string;
-    try {
-      raw = (await this.generateWithRetry([this.prompt, extractedText]))
-        .replace(/```json/gi, '')
-        .replace(/```/g, '')
-        .trim()
-        .split('\n')
-        .filter((l) => l.trim() !== ',')
-        .join('\n');
-    } catch (e: any) {
-      throw new BadRequestException('AI request failed: ' + e.message);
-    }
-
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return raw;
-    }
-  }
-
-  async markPdf(
+  async enqueueMarkPdf(
     file: Express.Multer.File,
     examKey: string,
     email: string,
     studentAnswer: string,
   ) {
-    if (!file) throw new BadRequestException('No file provided');
-    if (file.mimetype !== 'application/pdf')
-      throw new BadRequestException('Invalid file type: only PDF is allowed');
+    this.validateFile(file);
+    if (!(await this.examModel.exists({ examKey })))
+      throw new BadRequestException('Exam not found');
 
-    const exam = await this.examModel.findOne({ examKey }).exec();
-    if (!exam) throw new BadRequestException('Exam not found');
-    const extractedText = (await safeExtract(file.buffer)).trim();
-    if (!extractedText)
-      throw new BadRequestException('No text found in the PDF');
+    const tmpPath = `/tmp/${Date.now()}-${file.originalname}`;
+    await writeFile(tmpPath, file.buffer);
 
-    let scoreText: string;
+    const job = await this.producer.enqueueMark({
+      tmpPath,
+      examKey,
+      email,
+      studentAnswer,
+    });
+    log.verbose(`Queued mark job ${job.id} for exam ${examKey} – ${email}`);
+    return {
+      jobId: job.id,
+      message: 'Exam marking job queued successfully',
+    };
+  }
+
+  async getJobInfo(id: string) {
+    const job = await this.queue.getJob(id);
+    if (!job) throw new NotFoundException('Job not found');
+
+    const state = await job.getState();
+    const info = {
+      id: job.id,
+      name: job.name,
+      state,
+      progress: job.progress,
+      attemptsMade: job.attemptsMade,
+      processedOn: job.processedOn,
+      finishedOn: job.finishedOn,
+      result: job.returnvalue ?? null,
+      failedReason: job.failedReason ?? null,
+    };
+    log.debug(`Job ${id} state: ${state}`);
+    return info;
+  }
+
+  async parsePdfWorker({ tmpPath }: ParseJobData) {
+    log.debug(`Processing parse worker for ${tmpPath}`);
+    const buffer = await readFile(tmpPath);
+    const extracted = (await safeExtract(buffer)).trim();
+    if (!extracted) throw new BadRequestException('No text found in PDF');
+
+    const raw = await this.aiGenerateWithRetry([
+      this.parsePrompt,
+      extracted,
+    ]).then((t) =>
+      t
+        .replace(/```json/gi, '')
+        .replace(/```/g, '')
+        .trim()
+        .split('\n')
+        .filter((l) => l.trim() !== ',')
+        .join('\n'),
+    );
+
+    await unlink(tmpPath);
     try {
-      scoreText = await this.generateWithRetry([
-        this.markPrompt,
-        extractedText,
-      ]);
-      scoreText = scoreText.trim();
-    } catch (e: any) {
-      throw new BadRequestException('AI request failed: ' + e.message);
+      const parsed = JSON.parse(raw);
+      log.debug(`Parse worker completed for ${tmpPath}`);
+      return parsed;
+    } catch {
+      log.warn(`AI returned non-JSON output for ${tmpPath}; returning raw`);
+      return raw;
     }
+  }
 
-    const match = scoreText.match(/^\s*\d+\s*\/\s*\d+\s*$/);
-    if (!match) {
+  async markPdfWorker(data: MarkJobData): Promise<string> {
+    const { tmpPath, examKey, email, studentAnswer } = data;
+    log.debug(`Processing mark worker for job file ${tmpPath}`);
+    const exam = await this.examModel.findOne({ examKey }).exec();
+    if (!exam) throw new NotFoundException('Exam not found');
+
+    const buffer = await readFile(tmpPath);
+    const extracted = (await safeExtract(buffer)).trim();
+    if (!extracted) throw new BadRequestException('No text found in PDF');
+
+    const scoreText = (
+      await this.aiGenerateWithRetry([this.markPrompt, extracted])
+    ).trim();
+
+    if (!/^\s*\d+\s*\/\s*\d+\s*$/.test(scoreText)) {
       throw new BadRequestException(
-        'Unexpected scoring format from AI: ' + scoreText,
+        `Unexpected score format from AI: ${scoreText}`,
       );
     }
+
     const submissions: Submissions = {
       email: email.toLowerCase(),
       studentAnswer,
-      score: parseInt(scoreText.split('/')[0]),
+      score: parseInt(scoreText.split('/')[0], 10),
     };
     exam.submissions.push(submissions);
     await exam.save();
+    await unlink(tmpPath);
 
+    log.debug(`Marked exam ${examKey} for ${email}: ${scoreText}`);
     return scoreText;
+  }
+
+  private async aiGenerateWithRetry(
+    msgs: string[],
+    attempt = 1,
+  ): Promise<string> {
+    try {
+      const res = await this.model.generateContent(msgs);
+      return res.response.text();
+    } catch (err) {
+      log.warn(
+        `AI generation failed (attempt ${attempt}): ${err instanceof Error ? err.message : err}`,
+      );
+      if (attempt >= 3) throw err;
+      await sleep(500 * attempt);
+      return this.aiGenerateWithRetry(msgs, attempt + 1);
+    }
+  }
+
+  private validateFile(file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file provided');
+    if (file.mimetype !== 'application/pdf')
+      throw new BadRequestException('Invalid file type: only PDF allowed');
   }
 }

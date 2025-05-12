@@ -1,5 +1,6 @@
 import {
   Controller,
+  Get,
   Param,
   Post,
   Query,
@@ -9,6 +10,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ProcessService } from './process.service';
 import { ProcessControllerSwagger as Docs } from './docs/swagger';
+import { Express } from 'express';
 
 @Docs.controller
 @Controller('process')
@@ -20,8 +22,8 @@ export class ProcessController {
   @Docs.processPdf
   async processPdf(
     @UploadedFile() file: Express.Multer.File,
-  ): Promise<unknown> {
-    return this.service.processPdf(file);
+  ): Promise<{ jobId: string | undefined }> {
+    return this.service.enqueueProcessPdf(file);
   }
 
   @Post('mark/:examKey')
@@ -32,7 +34,22 @@ export class ProcessController {
     @Param('examKey') examKey: string,
     @Query('email') email: string,
     @Query('studentAnswer') studentAnswer: string,
-  ): Promise<string> {
-    return this.service.markPdf(file, examKey, email, studentAnswer);
+  ): Promise<{ jobId: string | undefined; message: string }> {
+    return this.service.enqueueMarkPdf(file, examKey, email, studentAnswer);
+  }
+
+  @Get('job/:id')
+  async getJob(@Param('id') id: string): Promise<{
+    id: any;
+    name: any;
+    state: any;
+    progress: any;
+    attemptsMade: any;
+    processedOn: any;
+    finishedOn: any;
+    result: any;
+    failedReason: any;
+  }> {
+    return this.service.getJobInfo(id);
   }
 }
