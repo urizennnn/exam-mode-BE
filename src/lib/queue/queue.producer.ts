@@ -13,11 +13,6 @@ interface MarkPayload extends ParsePayload {
   studentAnswer: string;
 }
 
-interface ProcessPayload {
-  buffer: Buffer;
-  mimetype: string;
-}
-
 @Injectable()
 export class PdfQueueProducer {
   constructor(@InjectQueue(PDF_QUEUE) private readonly queue: Queue) {}
@@ -30,7 +25,7 @@ export class PdfQueueProducer {
     return this.queue.add(PdfJobs.MARK, data);
   }
 
-  async enqueueProcessPdf(data: ProcessPayload) {
+  async enqueueProcessPdf(data: Express.Multer.File) {
     return this.queue.add(PdfJobs.PROCESS, data);
   }
 }

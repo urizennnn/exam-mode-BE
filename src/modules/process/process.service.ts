@@ -3,6 +3,7 @@ import { Model } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
 import { Exam, ExamDocument } from '../exam/models/exam.model';
 import { PdfQueueProducer } from 'src/lib/queue/queue.producer';
+import { writeFile } from 'node:fs/promises';
 
 @Injectable()
 export class ProcessService {
@@ -16,10 +17,7 @@ export class ProcessService {
     if (file.mimetype !== 'application/pdf')
       throw new BadRequestException('Invalid file type: only PDF is allowed');
 
-    const job = await this.pdfQueueProducer.enqueueProcessPdf({
-      buffer: file.buffer,
-      mimetype: file.mimetype,
-    });
+    const job = await this.pdfQueueProducer.enqueueProcessPdf(file);
 
     return { jobId: job.id };
   }
@@ -38,7 +36,7 @@ export class ProcessService {
     if (!exam) throw new BadRequestException('Exam not found');
 
     const tmpPath = `/tmp/${Date.now()}-${file.originalname}`;
-    await require('fs').promises.writeFile(tmpPath, file.buffer);
+    await writeFile(tmpPath, file.buffer);
 
     const job = await this.pdfQueueProducer.enqueueMark({
       tmpPath,

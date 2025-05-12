@@ -10,12 +10,11 @@ import { ProcessService } from 'src/modules/process/process.service';
 @Injectable()
 export class PdfQueueConsumer extends WorkerHost {
   constructor(private readonly processSvc: ProcessService) {
-    super(); // WorkerHost ctor
+    super();
   }
 
-  /** single entry-point called automatically for every job */
   async process(job: Job): Promise<void> {
-    switch (job.name) {
+    switch (job.name as PdfJobs) {
       case PdfJobs.PARSE:
         await this.handleParse(job as Job<{ tmpPath: string }>);
         break;
@@ -30,13 +29,19 @@ export class PdfQueueConsumer extends WorkerHost {
           }>,
         );
         break;
+      case PdfJobs.PROCESS:
+        await this.handleProcess(job as Job<Express.Multer.File>);
+        break;
 
       default:
         throw new Error(`Unknown job name: ${job.name}`);
     }
   }
 
-  /* ---------- helpers ---------- */
+  private async handleProcess(job: Job<Express.Multer.File>) {
+    const data = job.data;
+    await this.processSvc.processPdf(data);
+  }
 
   private async handleParse(job: Job<{ tmpPath: string }>) {
     const buffer = await fs.readFile(job.data.tmpPath);
@@ -44,7 +49,7 @@ export class PdfQueueConsumer extends WorkerHost {
       buffer,
       mimetype: 'application/pdf',
     } as Express.Multer.File);
-    await fs.unlink(job.data.tmpPath); // tidy up tmp file
+    await fs.unlink(job.data.tmpPath);
   }
 
   private async handleMark(
