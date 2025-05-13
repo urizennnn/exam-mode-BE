@@ -16,14 +16,12 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { CloudinaryService } from 'src/lib/cloudinary/cloudinary.service';
-
 import { PDF_QUEUE, ParseJobData, MarkJobData } from 'src/utils/constants';
 import { Exam, ExamDocument } from '../exam/models/exam.model';
 import { PdfQueueProducer } from 'src/lib/queue/queue.producer';
 import { Submissions } from '../exam/interfaces/exam.interface';
 
 const log = new Logger('ProcessService');
-
 const originalWarn = console.warn;
 function filterWarn(...msg: unknown[]) {
   const m = String(msg[0]);
@@ -38,6 +36,7 @@ async function safeExtract(buffer: Buffer): Promise<string> {
     const { text } = await pdfparse(buffer);
     if (text.trim()) return text;
   } catch {
+    log.warn('PDF parsing failed');
   } finally {
     console.warn = originalWarn;
   }
@@ -107,10 +106,8 @@ Return ONLY the JSON array—no markdown fences, no extra text.
     this.validateFile(file);
     if (!(await this.examModel.exists({ examKey })))
       throw new BadRequestException('Exam not found');
-
     const tmpPath = `/tmp/${Date.now()}-${file.originalname}`;
     await writeFile(tmpPath, file.buffer);
-
     const job = await this.producer.enqueueMark({
       tmpPath,
       examKey,
@@ -127,7 +124,6 @@ Return ONLY the JSON array—no markdown fences, no extra text.
   async getJobInfo(id: string) {
     const job = await this.queue.getJob(id);
     if (!job) throw new NotFoundException('Job not found');
-
     const state = await job.getState();
     const info = {
       id: job.id,
@@ -149,7 +145,6 @@ Return ONLY the JSON array—no markdown fences, no extra text.
     const buffer = await readFile(tmpPath);
     const extracted = (await safeExtract(buffer)).trim();
     if (!extracted) throw new BadRequestException('No text found in PDF');
-
     const raw = await this.aiGenerateWithRetry([
       this.parsePrompt,
       extracted,
@@ -162,7 +157,6 @@ Return ONLY the JSON array—no markdown fences, no extra text.
         .filter((l) => l.trim() !== ',')
         .join('\n'),
     );
-
     await unlink(tmpPath);
     try {
       const parsed = JSON.parse(raw);
@@ -180,63 +174,50 @@ Return ONLY the JSON array—no markdown fences, no extra text.
       log.debug(`Processing mark worker for job file ${tmpPath}`);
       const exam = await this.examModel.findOne({ examKey }).exec();
       if (!exam) throw new NotFoundException('Exam not found');
-
       const buffer = await readFile(tmpPath);
       const extracted = (await safeExtract(buffer)).trim();
       if (!extracted) throw new BadRequestException('No text found in PDF');
-
       const scoreText = (
         await this.aiGenerateWithRetry([this.markPrompt, extracted])
       ).trim();
-
       if (!/^\s*\d+\s*\/\s*\d+\s*$/.test(scoreText)) {
-        throw new BadRequestException(
-          `Unexpected score format from AI: ${scoreText}`,
-        );
+        throw new BadRequestException(`Unexpected score format "${scoreText}"`);
       }
-
-      let submission: Submissions = {
-        email: email.toLowerCase(),
-        studentAnswer,
-        score: parseInt(scoreText.split('/')[0], 10),
-        timeSubmitted: new Date().toISOString(),
-      };
-
       const doc = await PDFDocument.load(buffer);
-      const firstPage = doc.getPages()[0];
-      const { width, height } = firstPage.getSize();
-      const font = await doc.embedFont(StandardFonts.Helvetica);
-      // Correct logo path using absolute resolution
-      const logoPath = path.resolve(
-        process.cwd(),
-        'src',
-        'assests',
-        'images',
-        'logo.png',
-      );
+      const page = doc.getPages()[0];
+      const { width, height } = page.getSize();
+      const boldFont = await doc.embedFont(StandardFonts.HelveticaBold);
+      const fontSize = 14;
+      const lineGap = 22;
+      const logoPath = path.resolve('src', 'assets', 'images', 'logo.png');
       const logoBytes = await readFile(logoPath);
-      const logoImage = await doc.embedPng(logoBytes);
-      const logoDims = logoImage.scale(0.5);
-      firstPage.drawImage(logoImage, {
-        x: width / 2 - logoDims.width / 2,
-        y: height - logoDims.height - 50,
-        width: logoDims.width,
-        height: logoDims.height,
+      const logoImg = await doc.embedPng(logoBytes);
+      const logo = logoImg.scale(0.5);
+      page.drawImage(logoImg, {
+        x: width - logo.width - 50,
+        y: height - logo.height - 50,
+        width: logo.width,
+        height: logo.height,
       });
       const lines = [
-        `Exam-Module`,
-        ``,
+        'Exam-Module',
+        '',
         `Student: ${email}`,
         `Exam Key: ${examKey}`,
         `Score: ${scoreText}`,
-        `Time Submitted: ${submission.timeSubmitted}`,
+        `Time Submitted: ${new Date().toISOString().split('T')[0]}`,
       ];
-      lines.forEach((line, i) => {
-        firstPage.drawText(line, {
-          x: 50,
-          y: height - logoDims.height - 100 - i * 20,
-          size: 12,
-          font,
+      const blockHeight = lines.length * lineGap;
+      let yStart = height / 2 + blockHeight / 2 - lineGap;
+      lines.forEach((line, idx) => {
+        const y = yStart - idx * lineGap;
+        const textWidth = boldFont.widthOfTextAtSize(line, fontSize);
+        const x = (width - textWidth) / 2;
+        page.drawText(line, {
+          x,
+          y,
+          size: fontSize,
+          font: boldFont,
           color: rgb(0, 0, 0),
         });
       });
@@ -247,22 +228,20 @@ Return ONLY the JSON array—no markdown fences, no extra text.
       } as Express.Multer.File;
       const uploadResult = await this.cloudinary.uploadImage(uploadFile);
       const transcriptUrl = uploadResult.secure_url;
-      const saved = exam.submissions.find(
-        (s) =>
-          s.email === submission.email &&
-          s.timeSubmitted === submission.timeSubmitted,
-      );
-      if (saved) {
-        (saved as Submissions).transcript = transcriptUrl;
-      } else {
-        exam.submissions.push(submission);
-      }
+      const submission: Submissions = {
+        email: email.toLowerCase(),
+        studentAnswer,
+        score: parseInt(scoreText.split('/')[0], 10),
+        transcript: transcriptUrl,
+        timeSubmitted: new Date().toISOString(),
+      };
+      exam.submissions.push(submission);
       await exam.save();
-
       await unlink(tmpPath);
+      log.log(`Mark worker completed for ${tmpPath}`);
       return scoreText;
     } catch (e) {
-      log.error(`Error in markPdfWorker: ${e}`);
+      log.error(`Error in markPdfWorker: ${JSON.stringify(e)}`);
       throw new BadRequestException(
         `Error processing PDF: ${e instanceof Error ? e.message : e}`,
       );
@@ -277,11 +256,7 @@ Return ONLY the JSON array—no markdown fences, no extra text.
       const res = await this.model.generateContent(msgs);
       return res.response.text();
     } catch (err) {
-      log.warn(
-        `AI generation failed (attempt ${attempt}): ${
-          err instanceof Error ? err.message : err
-        }`,
-      );
+      log.warn(`AI fail x${attempt}: ${(err as Error).message}`);
       if (attempt >= 3) throw err;
       await sleep(500 * attempt);
       return this.aiGenerateWithRetry(msgs, attempt + 1);
@@ -291,6 +266,6 @@ Return ONLY the JSON array—no markdown fences, no extra text.
   private validateFile(file: Express.Multer.File) {
     if (!file) throw new BadRequestException('No file provided');
     if (file.mimetype !== 'application/pdf')
-      throw new BadRequestException('Invalid file type: only PDF allowed');
+      throw new BadRequestException('Invalid file type – PDF only');
   }
 }

@@ -39,9 +39,9 @@ export class ExamService {
     return { message: 'Exam created successfully' };
   }
   async getExamById(examId: string) {
-    let exam = await this.examModel.findById(examId).exec();
+    let exam = await this.examModel.findOne({ examKey: examId }).exec();
     if (!exam) {
-      exam = await this.examModel.findOne({ examKey: examId }).exec();
+      exam = await this.examModel.findById(examId).exec();
     }
     if (!exam) {
       throw new NotFoundException('Exam not found');
