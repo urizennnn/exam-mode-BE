@@ -80,7 +80,7 @@ ExamSchema.pre<ExamDocument>('save', async function (next) {
     this.invites = this.invites.map((invite) => invite.toLowerCase());
     const sg = new SendgridService(new ConfigService());
     const URL: string = cfg.getOrThrow('URL');
-    const link = this.link || `${URL}/student/login`;
+    const link = this.link || `${URL}/student-login`;
     await Promise.all(
       this.invites.map((to) =>
         sg.send({
