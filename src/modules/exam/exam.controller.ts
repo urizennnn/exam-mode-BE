@@ -32,6 +32,15 @@ export class ExamController {
     return this.examService.getExamById(id);
   }
 
+  @NeedsAuth()
+  @Post('drop-invite/:email/:key')
+  async dropEmailFromInvite(
+    @Param('email') email: string,
+    @Param('key') key: string,
+  ) {
+    return this.examService.dropEmailFromInvite(email, key);
+  }
+
   @Get()
   async getAllExams() {
     return this.examService.getAllExams();

@@ -130,4 +130,18 @@ export class ExamService {
     await exam.save();
     return { message: 'Transcript updated successfully' };
   }
+  async dropEmailFromInvite(email: string, examKey: string) {
+    console.log('email', email);
+    console.log('examKey', examKey);
+    let exam = await this.examModel.findOne({ examKey }).exec();
+    if (!exam) {
+      exam = await this.examModel.findById(examKey).exec();
+    }
+    if (!exam) {
+      throw new NotFoundException('Exam not found');
+    }
+    exam.invites = exam.invites.filter((e) => e !== email);
+    await exam.save();
+    return { message: 'Email dropped successfully' };
+  }
 }
