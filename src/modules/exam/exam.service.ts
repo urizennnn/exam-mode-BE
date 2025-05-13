@@ -39,7 +39,10 @@ export class ExamService {
     return { message: 'Exam created successfully' };
   }
   async getExamById(examId: string) {
-    const exam = await this.examModel.findById(examId).exec();
+    let exam = await this.examModel.findById(examId).exec();
+    if (!exam) {
+      exam = await this.examModel.findOne({ examKey: examId }).exec();
+    }
     if (!exam) {
       throw new NotFoundException('Exam not found');
     }
@@ -104,7 +107,27 @@ export class ExamService {
     if (!exam.invites.includes(email.toLowerCase())) {
       throw new BadRequestException('Email not invited');
     }
+    exam.submissions.forEach((s) => {
+      if (s.email === email.toLowerCase()) {
+        throw new BadRequestException('Email already submitted');
+      }
+    });
     const token = await this.jwtService.signAsync({ email, mode: 'student' });
     return { access_token: token, exam };
+  }
+
+  async updateSubmission(
+    examId: string,
+    dto: { email: string; transcript: string },
+  ) {
+    const exam = await this.examModel.findById(examId).exec();
+    if (!exam) throw new NotFoundException('Exam not found');
+
+    const submission = exam.submissions.find((s) => s.email === dto.email);
+    if (!submission) throw new NotFoundException('Submission not found');
+
+    submission.transcript = dto.transcript;
+    await exam.save();
+    return { message: 'Transcript updated successfully' };
   }
 }

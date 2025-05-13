@@ -57,6 +57,15 @@ export class ExamController {
     return this.examService.updateExam(id, dto, user);
   }
 
+  @NeedsAuth()
+  @Patch(':id/submissions')
+  async updateSubmission(
+    @Param('id') id: string,
+    @Body() dto: { email: string; transcript: string },
+  ) {
+    return this.examService.updateSubmission(id, dto);
+  }
+
   @Post(':key')
   async studentLogin(
     @Param('key') key: string,

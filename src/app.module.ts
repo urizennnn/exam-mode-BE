@@ -9,6 +9,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { MongooseModule } from '@nestjs/mongoose';
 import { QueueModule } from './lib/queue/queue.module';
 import 'dotenv/config';
+import { CloudinaryModule } from './lib/cloudinary/cloudinary.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import 'dotenv/config';
     UserModule,
     ExamModule,
     QueueModule,
+    CloudinaryModule,
   ],
   controllers: [AppController],
   providers: [AppService],
