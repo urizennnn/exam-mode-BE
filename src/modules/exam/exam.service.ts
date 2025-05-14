@@ -79,12 +79,6 @@ export class ExamService {
     const user = await this.userModel.findById(lecturer).exec();
     if (!user) throw new NotFoundException('User not Found');
 
-    if (!exam.lecturer.equals(lecturer)) {
-      throw new BadRequestException(
-        'User does not have permission to send invitation',
-      );
-    }
-
     dto.emails.forEach((email) => {
       if (!email.includes('@')) {
         throw new BadRequestException('Invalid email address');
