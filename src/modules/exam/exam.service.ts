@@ -10,6 +10,7 @@ import { CreateExamDto } from './dto/create-exam.dto';
 import { Invite } from './dto/invite-students.dto';
 import { User, UserDocument } from '../users/models/user.model';
 import { JwtService } from '@nestjs/jwt';
+import { sendInvite } from './utils/exam.utils';
 
 @Injectable()
 export class ExamService {
@@ -76,6 +77,7 @@ export class ExamService {
     const exam = await this.examModel.findById(examId).exec();
     if (!exam) throw new NotFoundException('Exam not found');
 
+    const invites: Array<string> = [];
     const user = await this.userModel.findById(lecturer).exec();
     if (!user) throw new NotFoundException('User not Found');
 
@@ -88,7 +90,9 @@ export class ExamService {
       }
       email.toLowerCase();
       exam.invites.push(email);
+      invites.push(email);
     });
+    await sendInvite(invites, exam.link, exam.examName);
     await exam.save();
     return { message: 'Exam updated successfully' };
   }
