@@ -10,6 +10,14 @@ export enum ExamAccessType {
 }
 
 @Schema({ _id: false })
+class InviteSchema {
+  @Prop({ required: true })
+  email: string;
+
+  @Prop({ required: true })
+  name: string;
+}
+@Schema({ _id: false })
 class GeneralSettings {
   @Prop({ required: true })
   anonymous: boolean;
@@ -48,7 +56,7 @@ export class Exam {
   access: ExamAccessType;
 
   @Prop({ required: false, type: [String] })
-  invites: string[];
+  invites: Array<InviteSchema>;
 
   @Prop({ required: false })
   link: string;
@@ -71,21 +79,22 @@ export class Exam {
 
 export type ExamDocument = HydratedDocument<Exam>;
 export const ExamSchema = SchemaFactory.createForClass(Exam);
-
 ExamSchema.pre<ExamDocument>('save', function (next) {
   if (this.isModified('invites')) {
     const cfg = new ConfigService();
-    const URL: string = cfg.getOrThrow('URL');
-
+    const URL = cfg.getOrThrow<string>('URL');
     this.link = `${URL}/student-login`;
   }
+
   if (this.isModified('submissions')) {
-    this.submissions.forEach((submission) => {
-      submission.email = submission.email.toLowerCase();
-      if (!this.invites.includes(submission.email)) {
-        this.submissions.pop();
-      }
-    });
+    const inviteEmails = this.invites.map((inv) => inv.email.toLowerCase());
+    this.submissions = this.submissions
+      .map((submission) => ({
+        ...submission,
+        email: submission.email.toLowerCase(),
+      }))
+      .filter((submission) => inviteEmails.includes(submission.email));
   }
+
   next();
 });

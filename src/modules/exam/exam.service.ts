@@ -10,7 +10,7 @@ import { CreateExamDto } from './dto/create-exam.dto';
 import { Invite } from './dto/invite-students.dto';
 import { User, UserDocument } from '../users/models/user.model';
 import { JwtService } from '@nestjs/jwt';
-import { sendInvite } from './utils/exam.utils';
+import { returnEmails, returnNames, sendInvite } from './utils/exam.utils';
 
 @Injectable()
 export class ExamService {
@@ -73,38 +73,81 @@ export class ExamService {
     return { message: 'Exams deleted successfully' };
   }
 
-  async updateExam(examId: string, dto: Invite, lecturer: Types.ObjectId) {
+  async updateExam(examId: string, dto: Partial<Exam>) {
     const exam = await this.examModel.findById(examId).exec();
     if (!exam) throw new NotFoundException('Exam not found');
 
-    const invites: Array<string> = [];
-    const user = await this.userModel.findById(lecturer).exec();
-    if (!user) throw new NotFoundException('User not Found');
-
-    dto.emails.forEach((email) => {
-      if (!email.includes('@')) {
-        throw new BadRequestException('Invalid email address');
-      }
-      if (exam.invites.includes(email.toLowerCase())) {
-        throw new BadRequestException('Email already invited');
-      }
-      email.toLowerCase();
-      exam.invites.push(email);
-      invites.push(email);
-    });
-    await sendInvite(invites, exam.link, exam.examName);
+    exam.set(dto);
     await exam.save();
     return { message: 'Exam updated successfully' };
   }
 
+  async sendInvites(
+    examId: string,
+    dto: Invite,
+    lecturer: Types.ObjectId,
+    file?: Express.Multer.File,
+  ) {
+    const exam = await this.examModel.findById(examId).exec();
+    if (!exam) throw new NotFoundException('Exam not found');
+
+    const user = await this.userModel.findById(lecturer).exec();
+    if (!user) throw new NotFoundException('User not Found');
+
+    const invites: { email: string; name: string }[] = [];
+
+    if (!file) {
+      dto.emails.forEach((email) => {
+        const cleanEmail = email.toLowerCase();
+        if (!cleanEmail.includes('@')) {
+          throw new BadRequestException('Invalid email address');
+        }
+        if (exam.invites.some((inv) => inv.email === cleanEmail)) {
+          throw new BadRequestException(`Email ${cleanEmail} already invited`);
+        }
+        invites.push({ email: cleanEmail, name: '' });
+        exam.invites.push({ email: cleanEmail, name: '' });
+      });
+    } else {
+      const emailList = returnEmails(file).flat();
+      const nameList = returnNames(file).flat();
+
+      if (emailList.length !== nameList.length) {
+        throw new BadRequestException('CSV name/email count mismatch');
+      }
+
+      for (let i = 0; i < emailList.length; i++) {
+        const email = emailList[i].toLowerCase();
+        const name = nameList[i];
+        if (!email.includes('@')) {
+          throw new BadRequestException(`Invalid email: ${email}`);
+        }
+        if (exam.invites.some((inv) => inv.email === email)) {
+          continue;
+        }
+        invites.push({ email, name });
+        exam.invites.push({ email, name });
+      }
+    }
+
+    await sendInvite(
+      invites.map((i) => i.email),
+      exam.link,
+      exam.examName,
+    );
+    await exam.save();
+    return { message: 'Invites sent and exam updated' };
+  }
   async studentLogin(examKey: string, email: string) {
     const exam = await this.examModel.findOne({ examKey: examKey }).exec();
     if (!exam) {
       throw new NotFoundException('Exam not found');
     }
-    if (!exam.invites.includes(email.toLowerCase())) {
-      throw new BadRequestException('Email not invited');
-    }
+    exam.invites.forEach((i) => {
+      if (i.email === email.toLowerCase()) {
+        throw new BadRequestException('Email already invited');
+      }
+    });
     exam.submissions.forEach((s) => {
       if (s.email === email.toLowerCase()) {
         throw new BadRequestException('Email already submitted');
@@ -129,8 +172,6 @@ export class ExamService {
     return { message: 'Transcript updated successfully' };
   }
   async dropEmailFromInvite(email: string, examKey: string) {
-    console.log('email', email);
-    console.log('examKey', examKey);
     let exam = await this.examModel.findOne({ examKey }).exec();
     if (!exam) {
       exam = await this.examModel.findById(examKey).exec();
@@ -138,8 +179,18 @@ export class ExamService {
     if (!exam) {
       throw new NotFoundException('Exam not found');
     }
-    exam.invites = exam.invites.filter((e) => e !== email);
+    exam.invites = exam.invites.filter((e) => e.email !== email);
     await exam.save();
     return { message: 'Email dropped successfully' };
+  }
+  async searchExam(examKey: string) {
+    return this.examModel
+      .find({
+        $text: {
+          $search: examKey,
+        },
+      })
+      .limit(10)
+      .exec();
   }
 }
