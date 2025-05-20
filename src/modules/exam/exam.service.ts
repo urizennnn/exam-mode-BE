@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { Exam, ExamDocument } from './models/exam.model';
+import { Exam, ExamAccessType, ExamDocument } from './models/exam.model';
 import { CreateExamDto } from './dto/create-exam.dto';
 import { Invite } from './dto/invite-students.dto';
 import { User, UserDocument } from '../users/models/user.model';
@@ -142,6 +142,9 @@ export class ExamService {
     const exam = await this.examModel.findOne({ examKey: examKey }).exec();
     if (!exam) {
       throw new NotFoundException('Exam not found');
+    }
+    if (exam.access !== ExamAccessType.OPEN) {
+      throw new BadRequestException('Exam is not open');
     }
     exam.invites.forEach((i) => {
       if (i.email === email.toLowerCase()) {

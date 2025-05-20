@@ -5,8 +5,8 @@ import { ConfigService } from '@nestjs/config';
 
 export enum ExamAccessType {
   OPEN = 'open',
-  PRIVATE = 'private',
-  RESTRICTED = 'restricted',
+  CLOSED = 'closed',
+  SCHEDULED = 'scheduled',
 }
 
 @Schema({ _id: false })
