@@ -36,7 +36,9 @@ export class UserService {
     return { message: 'User registered successfully' };
   }
 
-  async login(dto: LoginUserDto): Promise<{ access_token: string }> {
+  async login(
+    dto: LoginUserDto,
+  ): Promise<{ access_token: string; name: string }> {
     const user = await this.userModel.findOne({ email: dto.email }).exec();
     if (!user) throw new UnauthorizedException('Invalid credentials');
 
@@ -51,7 +53,7 @@ export class UserService {
     };
     const token = await this.jwtService.signAsync(payload);
 
-    return { access_token: token };
+    return { access_token: token, name: user.name };
   }
 
   async logout(id: Types.ObjectId): Promise<{ message: string }> {
