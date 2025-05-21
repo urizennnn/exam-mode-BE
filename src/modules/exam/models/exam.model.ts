@@ -55,7 +55,7 @@ export class Exam {
   @Prop({ type: String, enum: ExamAccessType, required: true })
   access: ExamAccessType;
 
-  @Prop({ required: false, type: [String] })
+  @Prop({ required: false, type: [InviteSchema], default: [] })
   invites: Array<InviteSchema>;
 
   @Prop({ required: false })

@@ -39,6 +39,7 @@ export class ExamService {
     await newExam.save();
     return { message: 'Exam created successfully' };
   }
+
   async getExamById(examId: string) {
     let exam = await this.examModel.findOne({ examKey: examId }).exec();
     if (!exam) {
@@ -94,52 +95,83 @@ export class ExamService {
     const user = await this.userModel.findById(lecturer).exec();
     if (!user) throw new NotFoundException('User not Found');
 
-    const invites: { email: string; name: string }[] = [];
+    const newInvites: { email: string; name: string }[] = [];
 
     if (!file) {
-      dto.emails.forEach((email) => {
-        const cleanEmail = email.toLowerCase();
-        if (!cleanEmail.includes('@')) {
-          throw new BadRequestException('Invalid email address');
-        }
-        if (exam.invites.some((inv) => inv.email === cleanEmail)) {
-          throw new BadRequestException(`Email ${cleanEmail} already invited`);
-        }
-        invites.push({ email: cleanEmail, name: '' });
-        exam.invites.push({ email: cleanEmail, name: '' });
-      });
-    } else {
-      const emailList = returnEmails(file).flat();
-      const nameList = returnNames(file).flat();
-
-      if (emailList.length !== nameList.length) {
-        throw new BadRequestException('CSV name/email count mismatch');
+      if (!Array.isArray(dto.emails) || !Array.isArray(dto.names)) {
+        throw new BadRequestException(
+          'Both emails[] and names[] arrays are required when no CSV file is provided',
+        );
+      }
+      if (dto.emails.length !== dto.names.length) {
+        throw new BadRequestException(
+          'emails[] and names[] must be the same length',
+        );
       }
 
-      for (let i = 0; i < emailList.length; i++) {
-        const email = emailList[i].toLowerCase();
-        const name = nameList[i];
+      for (let i = 0; i < dto.emails.length; i++) {
+        const email = String(dto.emails[i]).toLowerCase().trim();
+        const name = String(dto.names[i]).trim();
+
         if (!email.includes('@')) {
           throw new BadRequestException(`Invalid email: ${email}`);
+        }
+        if (!name) {
+          throw new BadRequestException(`Name required for email: ${email}`);
         }
         if (exam.invites.some((inv) => inv.email === email)) {
           continue;
         }
-        invites.push({ email, name });
-        exam.invites.push({ email, name });
+        newInvites.push({ email, name });
+      }
+    } else {
+      const rawEmails = returnEmails(file);
+      const rawNames = returnNames(file);
+
+      if (rawEmails.length !== rawNames.length) {
+        throw new BadRequestException('CSV name/email count mismatch');
+      }
+
+      for (let i = 0; i < rawEmails.length; i++) {
+        const email = rawEmails[i]
+          .replace(/,+\s*$/, '')
+          .toLowerCase()
+          .trim();
+        const name = rawNames[i].replace(/,+\s*$/, '').trim();
+
+        if (!email.includes('@')) {
+          throw new BadRequestException(`Invalid email: ${email}`);
+        }
+        if (!name) {
+          throw new BadRequestException(`Name required for email: ${email}`);
+        }
+        if (exam.invites.some((inv) => inv.email === email)) {
+          continue;
+        }
+        newInvites.push({ email, name });
       }
     }
 
+    if (newInvites.length === 0) {
+      throw new BadRequestException('No new valid invites to add');
+    }
+
+    exam.invites.push(...newInvites);
+
+    exam.invites = exam.invites.filter((i) => i && i.email && i.name) as any[];
+
     await sendInvite(
-      invites.map((i) => i.email),
+      newInvites.map((i) => i.email),
       exam.link,
       exam.examName,
     );
     await exam.save();
+
     return { message: 'Invites sent and exam updated' };
   }
+
   async studentLogin(examKey: string, email: string) {
-    const exam = await this.examModel.findOne({ examKey: examKey }).exec();
+    const exam = await this.examModel.findOne({ examKey }).exec();
     if (!exam) {
       throw new NotFoundException('Exam not found');
     }
@@ -174,6 +206,7 @@ export class ExamService {
     await exam.save();
     return { message: 'Transcript updated successfully' };
   }
+
   async dropEmailFromInvite(email: string, examKey: string) {
     let exam = await this.examModel.findOne({ examKey }).exec();
     if (!exam) {
@@ -186,6 +219,7 @@ export class ExamService {
     await exam.save();
     return { message: 'Email dropped successfully' };
   }
+
   async searchExam(examKey: string) {
     return this.examModel
       .find({
