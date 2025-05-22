@@ -201,7 +201,7 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
     const { tmpPath, examKey, email, studentAnswer } = data;
     const exam = await this.examModel.findOne({ examKey }).exec();
     if (!exam) throw new NotFoundException('Exam not found');
-
+    const studenName = exam.invites.find((i) => i.email === email)?.name;
     const buffer = await readFile(tmpPath);
     const extracted = (await safeExtract(buffer)).trim();
     if (!extracted) throw new BadRequestException('No text found in PDF');
@@ -254,7 +254,7 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
     });
 
     const centerDetails = [
-      `Student: ${email}`,
+      `Student: ${email} (${studenName})`,
       `Exam Key: ${examKey}`,
       `Time Submitted: ${new Date().toISOString().split('T')[0]}`,
     ];
