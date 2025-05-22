@@ -52,7 +52,18 @@ export class Exam {
   @Prop({ required: true, unique: true })
   examKey: string;
 
-  @Prop({ type: String, enum: ExamAccessType, required: true })
+  @Prop({ required: false, type: Date })
+  startDate: Date;
+
+  @Prop({ required: false, type: Date })
+  endDate: Date;
+
+  @Prop({
+    type: String,
+    enum: ExamAccessType,
+    required: true,
+    default: ExamAccessType.OPEN,
+  })
   access: ExamAccessType;
 
   @Prop({ required: false, type: [InviteSchema], default: [] })
@@ -94,6 +105,11 @@ ExamSchema.pre<ExamDocument>('save', function (next) {
         email: submission.email.toLowerCase(),
       }))
       .filter((submission) => inviteEmails.includes(submission.email));
+  }
+  if (this.isModified('access')) {
+    if (this.access == ExamAccessType.CLOSED) {
+      this.endDate = new Date();
+    }
   }
 
   next();
