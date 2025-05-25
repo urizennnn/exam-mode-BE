@@ -179,8 +179,8 @@ export class ExamService {
       throw new BadRequestException('Exam is not open');
     }
     exam.invites.forEach((i) => {
-      if (i.email === email.toLowerCase()) {
-        throw new BadRequestException('Email already invited');
+      if (i.email !== email.toLowerCase()) {
+        throw new BadRequestException('Email not invited');
       }
     });
     exam.submissions.forEach((s) => {
