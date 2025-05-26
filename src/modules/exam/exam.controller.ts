@@ -130,4 +130,12 @@ export class ExamController {
   ) {
     return this.examService.duplicateExam(id, body.examKey);
   }
+  @NeedsAuth()
+  @Post(':id/schedule')
+  async scheduleExam(
+    @Param('id') id: string,
+    @Body() dto: { startAt: string },
+  ) {
+    return this.examService.scheduleExam(id, new Date(dto.startAt));
+  }
 }

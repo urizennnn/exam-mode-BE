@@ -16,10 +16,14 @@ import {
   sendInvite,
   sendTranscript,
 } from './utils/exam.utils';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { EXAM_SCHEDULER_QUEUE } from 'src/utils/constants';
 
 @Injectable()
 export class ExamService {
   constructor(
+    @InjectQueue(EXAM_SCHEDULER_QUEUE) private readonly queue: Queue,
     @InjectModel(Exam.name) private readonly examModel: Model<ExamDocument>,
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
     private readonly jwtService: JwtService,
@@ -279,5 +283,35 @@ export class ExamService {
 
     await newExam.save();
     return { message: 'Exam duplicated successfully', exam: newExam };
+  }
+  async scheduleExam(examId: string, startAt: Date) {
+    if (isNaN(startAt.getTime()))
+      throw new BadRequestException('Invalid startAt date');
+
+    const exam =
+      (await this.examModel.findOne({ examKey: examId })) ??
+      (await this.examModel.findById(examId));
+
+    if (!exam) throw new NotFoundException('Exam not found');
+    if (startAt.getTime() <= Date.now())
+      throw new BadRequestException('startAt must be in the future');
+
+    exam.startDate = startAt;
+    exam.access = ExamAccessType.SCHEDULED;
+    await exam.save();
+    const prev = await this.queue.getJob(exam._id.toString());
+    if (prev) await prev.remove();
+    const delay = startAt.getTime() - Date.now();
+    await this.queue.add(
+      'open-exam',
+      { examId: exam._id.toString() },
+      {
+        jobId: exam._id.toString(),
+        delay,
+        removeOnComplete: true,
+        removeOnFail: true,
+      },
+    );
+    return { message: 'Exam scheduled successfully', startAt };
   }
 }

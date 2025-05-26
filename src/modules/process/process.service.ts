@@ -74,6 +74,8 @@ export class ProcessService {
 2. Compare the student's answer to the correct answer for each.
 3. Calculate the total correct responses.
 4. Return ONLY the result as a fraction in the form X/Y, where Y is the total number of questions.
+5. Do not include any additional text, explanations, or formatting.
+6. Do not mark theory questions; only multiple-choice questions are scored.
 Do not include any other text or explanation.`.trim();
 
   private readonly parsePrompt =
