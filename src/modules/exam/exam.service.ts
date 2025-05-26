@@ -10,7 +10,12 @@ import { CreateExamDto } from './dto/create-exam.dto';
 import { Invite } from './dto/invite-students.dto';
 import { User, UserDocument } from '../users/models/user.model';
 import { JwtService } from '@nestjs/jwt';
-import { returnEmails, returnNames, sendInvite } from './utils/exam.utils';
+import {
+  returnEmails,
+  returnNames,
+  sendInvite,
+  sendTranscript,
+} from './utils/exam.utils';
 
 @Injectable()
 export class ExamService {
@@ -158,7 +163,7 @@ export class ExamService {
 
     exam.invites.push(...newInvites);
 
-    exam.invites = exam.invites.filter((i) => i && i.email && i.name) as any[];
+    exam.invites = exam.invites.filter((i) => i && i.email && i.name);
 
     await sendInvite(
       newInvites.map((i) => i.email),
@@ -188,6 +193,8 @@ export class ExamService {
         throw new BadRequestException('Email already submitted');
       }
     });
+    exam.ongoing += 1;
+    await exam.save();
     const token = await this.jwtService.signAsync({ email, mode: 'student' });
     return { access_token: token, exam };
   }
@@ -229,5 +236,48 @@ export class ExamService {
       })
       .limit(10)
       .exec();
+  }
+  async sendExamBack(examId: string, email: string | string[]) {
+    const exam = await this.examModel.findById(examId).exec();
+    if (!exam) throw new NotFoundException('Exam not found');
+
+    const emails = Array.isArray(email) ? email : [email];
+
+    for (const addr of emails) {
+      const lowered = addr.toLowerCase();
+      const submission = exam.submissions.find((s) => s.email === lowered);
+
+      if (!submission)
+        throw new BadRequestException(`No submission for email ${addr}`);
+
+      if (!submission.transcript)
+        throw new BadRequestException(
+          `Transcript not yet generated for ${addr}`,
+        );
+
+      await sendTranscript(addr, submission.transcript, exam.examName);
+    }
+
+    return {
+      message: `Transcript sent to ${emails.length} student${
+        emails.length > 1 ? 's' : ''
+      } successfully`,
+    };
+  }
+  async duplicateExam(examId: string) {
+    const exam = await this.examModel.findById(examId).exec();
+    if (!exam) throw new NotFoundException('Exam not found');
+
+    const newExam = new this.examModel({
+      ...exam.toObject(),
+      _id: new Types.ObjectId(),
+      examName: `${exam.examName} (Copy)`,
+      examKey: `${exam.examKey}-copy`,
+      ongoing: 0,
+      submissions: [],
+    });
+
+    await newExam.save();
+    return { message: 'Exam duplicated successfully', exam: newExam };
   }
 }

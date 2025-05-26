@@ -113,4 +113,18 @@ export class ExamController {
     console.log('key', key);
     return this.examService.studentLogin(key, email.email);
   }
+
+  @NeedsAuth()
+  @Post(':id/send')
+  async sendExamBack(
+    @Param('id') id: string,
+    @Body() body: { email: string | Array<string> },
+  ) {
+    return this.examService.sendExamBack(id, body.email);
+  }
+  @NeedsAuth()
+  @Post(':id/duplicate')
+  async duplicateExam(@Param('id') id: string) {
+    return this.examService.duplicateExam(id);
+  }
 }

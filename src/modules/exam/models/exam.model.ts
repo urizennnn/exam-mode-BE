@@ -56,7 +56,7 @@ export class Exam {
   startDate: Date;
 
   @Prop({ required: false, type: Date })
-  endDate: Date;
+  endDate: Date | string;
 
   @Prop({
     type: String,
@@ -68,6 +68,9 @@ export class Exam {
 
   @Prop({ required: false, type: [InviteSchema], default: [] })
   invites: Array<InviteSchema>;
+
+  @Prop({ required: false, type: Number, default: 0 })
+  ongoing: number;
 
   @Prop({ required: false })
   link: string;
@@ -109,6 +112,10 @@ ExamSchema.pre<ExamDocument>('save', function (next) {
   if (this.isModified('access')) {
     if (this.access == ExamAccessType.CLOSED) {
       this.endDate = new Date();
+    }
+    if (this.access == ExamAccessType.OPEN) {
+      this.startDate = new Date();
+      this.endDate = '';
     }
   }
 
