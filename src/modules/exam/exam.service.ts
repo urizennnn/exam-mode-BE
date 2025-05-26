@@ -264,7 +264,7 @@ export class ExamService {
       } successfully`,
     };
   }
-  async duplicateExam(examId: string) {
+  async duplicateExam(examId: string, examKey: string) {
     const exam = await this.examModel.findById(examId).exec();
     if (!exam) throw new NotFoundException('Exam not found');
 
@@ -272,7 +272,7 @@ export class ExamService {
       ...exam.toObject(),
       _id: new Types.ObjectId(),
       examName: `${exam.examName} (Copy)`,
-      examKey: `${exam.examKey}-copy`,
+      examKey,
       ongoing: 0,
       submissions: [],
     });

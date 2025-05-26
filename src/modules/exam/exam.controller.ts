@@ -124,7 +124,10 @@ export class ExamController {
   }
   @NeedsAuth()
   @Post(':id/duplicate')
-  async duplicateExam(@Param('id') id: string) {
-    return this.examService.duplicateExam(id);
+  async duplicateExam(
+    @Param('id') id: string,
+    @Body() body: { examKey: string },
+  ) {
+    return this.examService.duplicateExam(id, body.examKey);
   }
 }
