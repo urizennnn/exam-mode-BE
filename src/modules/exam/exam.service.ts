@@ -173,6 +173,7 @@ export class ExamService {
       newInvites.map((i) => i.email),
       exam.link,
       exam.examName,
+      exam.examKey,
     );
     await exam.save();
 

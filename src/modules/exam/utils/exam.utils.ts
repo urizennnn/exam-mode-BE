@@ -7,6 +7,7 @@ export async function sendInvite(
   emails: string[],
   link: string | undefined,
   examName: string | undefined,
+  examKey: string | undefined,
 ) {
   const sg = new SendgridService(cfg);
   const URL = cfg.getOrThrow<string>('URL');
@@ -18,6 +19,7 @@ export async function sendInvite(
         to,
         subject: `Invitation to take exam: ${examName}`,
         html: `<p>You have been invited to take the exam <strong>${examName}</strong>.</p>
+        <p>Here is the examcode <strong>${examKey}</strong></p>
                <p>Please click this link: <strong>${link}</strong></p>`,
       }),
     ),
