@@ -9,131 +9,78 @@ import {
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { TokenExpiredError } from 'jsonwebtoken';
-import { Request } from 'express';
 import { JwtService } from '@nestjs/jwt';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import { NEEDS_AUTH } from 'src/common';
 import { User } from 'src/modules/users/models/user.model';
-import { Model, FilterQuery, Types } from 'mongoose';
-import { InjectModel } from '@nestjs/mongoose';
+import type { Request } from 'express';
 
 export type JwtPayload = {
   email: string;
   mode: 'lecturer' | 'student';
-  sub?: string;
+  sub: string;
+  sessionId: string;
 };
-
-export interface AuthenticatedRequest extends Request {
-  user: {
-    id: Types.ObjectId;
-  };
-}
-
-@Injectable()
-class JwtGuardUtils {
-  constructor(
-    private readonly reflector: Reflector,
-    readonly jwtService: JwtService,
-  ) {}
-
-  isAuthRequired(context: ExecutionContext): boolean {
-    return this.reflector.getAllAndOverride<boolean>(NEEDS_AUTH, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
-  }
-
-  getRequest(context: ExecutionContext): AuthenticatedRequest {
-    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
-    if (!request || !request.headers) {
-      throw new HttpException('Invalid request', HttpStatus.BAD_REQUEST);
-    }
-    return request;
-  }
-
-  extractTokenFromHeader(request: Request): string | undefined {
-    const header = request.headers.authorization;
-    if (!header) return undefined;
-    const [type, token] = header.split(' ');
-    return type === 'Bearer' ? token : undefined;
-  }
-
-  async verifyAndValidateToken(token: string): Promise<JwtPayload> {
-    try {
-      const payload = (await this.jwtService.verify(token)) as JwtPayload;
-      if (!payload || typeof payload !== 'object' || !payload.email) {
-        throw new HttpException(
-          'Invalid token payload',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-      return payload;
-    } catch (error) {
-      if (error instanceof TokenExpiredError) {
-        throw new HttpException('Token has expired', HttpStatus.UNAUTHORIZED);
-      }
-      if (
-        error instanceof Error &&
-        (error.message === 'jwt malformed' ||
-          error.message === 'invalid signature')
-      ) {
-        throw new HttpException('Invalid token', HttpStatus.UNAUTHORIZED);
-      }
-      throw new HttpException('Authorization failed', HttpStatus.UNAUTHORIZED);
-    }
-  }
-}
 
 @Injectable()
 export class JwtGuard extends AuthGuard('jwt') implements CanActivate {
-  private readonly utils: JwtGuardUtils;
   private readonly logger = new Logger(JwtGuard.name);
 
   constructor(
-    reflector: Reflector,
-    jwtService: JwtService,
+    private readonly reflector: Reflector,
+    private readonly jwtService: JwtService,
     @InjectModel(User.name) private readonly userModel: Model<User>,
   ) {
     super();
-    this.utils = new JwtGuardUtils(reflector, jwtService);
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    this.logger.log('Checking JWT guard');
-    if (!this.utils.isAuthRequired(context)) return true;
-    const request = this.utils.getRequest(context);
-    const token = this.utils.extractTokenFromHeader(request);
-    if (!token) {
+    const requires = this.reflector.getAllAndOverride<boolean>(NEEDS_AUTH, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (!requires) return true;
+
+    const req = context.switchToHttp().getRequest<Request>();
+    const auth = req.headers.authorization?.split(' ');
+    if (!auth || auth[0] !== 'Bearer') {
       throw new HttpException(
         'Authentication token is missing',
         HttpStatus.UNAUTHORIZED,
       );
     }
+    const token = auth[1];
 
     let payload: JwtPayload;
     try {
-      payload = await this.utils.verifyAndValidateToken(token);
+      payload = this.jwtService.verify<JwtPayload>(token);
     } catch (err) {
-      if (err instanceof HttpException && err.message === 'Token has expired') {
-        const decoded: JwtPayload = this.utils.jwtService.decode(token);
-        if (decoded?.email && decoded.mode === 'lecturer') {
+      if (err instanceof TokenExpiredError) {
+        const decoded = this.jwtService.decode(token) as JwtPayload | null;
+        if (decoded?.email) {
           await this.userModel.updateOne(
             { email: decoded.email },
-            { isSignedIn: false },
+            { isSignedIn: false, currentSessionId: null },
           );
           this.logger.warn(
-            `JWT expired – reset isSignedIn for ${decoded.email}`,
+            `Token expired – cleared session for ${decoded.email}`,
           );
         }
+        throw new HttpException('Token has expired', HttpStatus.UNAUTHORIZED);
       }
-      throw err;
+      throw new HttpException('Invalid token', HttpStatus.UNAUTHORIZED);
     }
 
-    const user = await this.userModel.findOne({ email: payload.email });
-    if (!user) {
-      throw new HttpException('User not found', HttpStatus.UNAUTHORIZED);
+    const user = await this.userModel.findOne({ email: payload.email }).exec();
+    if (!user || user.currentSessionId !== payload.sessionId) {
+      throw new HttpException(
+        'Session invalid or expired',
+        HttpStatus.UNAUTHORIZED,
+      );
     }
 
-    request.user = { id: user._id };
+    (req as any).user = { id: user._id };
     return true;
   }
 }

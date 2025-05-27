@@ -15,7 +15,10 @@ export class User implements IUser {
   name: string;
 
   @Prop({ default: false, type: Boolean })
-  isSignedIn?: boolean | undefined;
+  isSignedIn?: boolean;
+
+  @Prop({ type: String, default: null })
+  currentSessionId?: string | null;
 }
 
 export type UserDocument = HydratedDocument<User>;
@@ -23,7 +26,8 @@ export type UserDocument = HydratedDocument<User>;
 export const UserSchema = SchemaFactory.createForClass(User);
 
 UserSchema.pre<UserDocument>('save', async function (next) {
-  if (!this.isModified('password')) return next();
-  this.password = await hash(this.password);
+  if (this.isModified('password')) {
+    this.password = await hash(this.password);
+  }
   next();
 });
