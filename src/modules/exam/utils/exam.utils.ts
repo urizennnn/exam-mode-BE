@@ -4,28 +4,33 @@ import { SendgridService } from 'src/modules/email/email.service';
 const cfg = new ConfigService();
 
 export async function sendInvite(
-  emails: string[],
-  link: string | undefined,
-  examName: string | undefined,
-  examKey: string | undefined,
+  recipients: { email: string; name: string }[],
+  examTitle: string,
+  examCode: string,
+  startDate: string,
 ) {
   const sg = new SendgridService(cfg);
   const URL = cfg.getOrThrow<string>('URL');
-  link = `${URL}/student-login`;
+  const examLink = `${URL}/student-login`;
 
   await Promise.all(
-    [...new Set(emails)].map((to) =>
+    recipients.map(({ email, name }) =>
       sg.send({
-        to,
-        subject: `Invitation to take exam: ${examName}`,
-        html: `<p>You have been invited to take the exam <strong>${examName}</strong>.</p>
-        <p>Here is the examcode <strong>${examKey}</strong></p>
-               <p>Please click this link: <strong>${link}</strong></p>`,
+        to: email,
+        subject: `Invitation to write ${examTitle}`,
+        html: `<p>Dear ${name},</p>
+               <p>You are invited to write the <strong>${examTitle}</strong> exam, which will be available by <strong>${startDate}</strong> to end at the discretion of the lecturer.</p>
+               <p>To take the exam, follow these steps:</p>
+               <ol>
+                 <li>Click on the link: <a href="${examLink}">Docenti Student Exam</a></li>
+                 <li>Login with your email address and the following code: <strong>${examCode}</strong></li>
+               </ol>
+               <p>Ensure you use the correct email address and code to access the exam.</p>
+               <p>Thank you.</p>`,
       }),
     ),
   );
 }
-
 export async function sendTranscript(
   email: string,
   transcriptLink: string,

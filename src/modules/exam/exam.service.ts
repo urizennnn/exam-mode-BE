@@ -170,10 +170,11 @@ export class ExamService {
     exam.invites = exam.invites.filter((i) => i && i.email && i.name);
 
     await sendInvite(
-      newInvites.map((i) => i.email),
-      exam.link,
+      exam.invites,
       exam.examName,
       exam.examKey,
+      exam.link,
+      exam.startDate.toDateString(),
     );
     await exam.save();
 
