@@ -109,6 +109,7 @@ export class ExamController {
     @Param('key') key: string,
     @Body() email: { email: string },
   ) {
+    console.log('Student login attempt with key:', key, 'and email:', email);
     return this.examService.studentLogin(key, email.email);
   }
 
