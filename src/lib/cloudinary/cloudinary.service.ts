@@ -23,7 +23,7 @@ export class CloudinaryService {
           error: UploadApiErrorResponse | undefined,
           result: UploadApiResponse,
         ) => {
-          if (error) return reject(error);
+          if (error) return reject(new Error(error.message));
           resolve(result);
         },
       );

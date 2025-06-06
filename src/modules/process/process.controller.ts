@@ -17,13 +17,14 @@ import { Express } from 'express';
 export class ProcessController {
   constructor(private readonly service: ProcessService) {}
 
-  @Post()
+  @Post(':examKey')
   @UseInterceptors(FileInterceptor('file'))
   @Docs.processPdf
   async processPdf(
     @UploadedFile() file: Express.Multer.File,
+    @Param('examKey') examKey: string,
   ): Promise<{ jobId: string | undefined }> {
-    return this.service.enqueueProcessPdf(file);
+    return this.service.enqueueProcessPdf(file, examKey);
   }
 
   @Post('mark/:examKey')

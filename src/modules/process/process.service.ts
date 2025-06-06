@@ -101,11 +101,11 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
     private readonly cloudinary: CloudinaryService,
   ) {}
 
-  async enqueueProcessPdf(file: Express.Multer.File) {
+  async enqueueProcessPdf(file: Express.Multer.File, examKey: string) {
     this.validateFile(file);
     const tmpPath = `/tmp/${Date.now()}-${file.originalname}`;
     await writeFile(tmpPath, file.buffer);
-    const job = await this.producer.enqueueProcess({ tmpPath });
+    const job = await this.producer.enqueueProcess({ tmpPath, examKey });
     log.verbose(`Queued parse job ${job.id} for ${file.originalname}`);
     return { jobId: job.id };
   }
@@ -158,7 +158,7 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
     return info;
   }
 
-  async parsePdfWorker({ tmpPath }: ParseJobData): Promise<unknown> {
+  async parsePdfWorker({ tmpPath, examKey }: ParseJobData): Promise<unknown> {
     log.debug(`Processing parse worker for ${tmpPath}`);
     try {
       const buffer = await readFile(tmpPath);
@@ -176,12 +176,24 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
           .filter((l) => l.trim() !== ',')
           .join('\n'),
       );
+      let parsed: unknown;
       try {
-        return JSON.parse(raw) as unknown;
+        parsed = JSON.parse(raw) as unknown;
       } catch {
         log.warn(`AI returned non-JSON output for ${tmpPath}; returning raw`);
-        return raw;
+        parsed = raw;
       }
+
+      if (examKey) {
+        const exam = await this.examModel.findOne({ examKey }).exec();
+        if (exam) {
+          const arr = Array.isArray(parsed) ? parsed : [parsed];
+          exam.question_text = arr.map((q) => String(q));
+          await exam.save();
+        }
+      }
+
+      return parsed;
     } finally {
       await unlink(tmpPath);
     }
@@ -219,6 +231,25 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
     const existingPdf = await PDFDocument.load(buffer);
     const newPage = doc.addPage();
     const { width, height } = newPage.getSize();
+
+    newPage.drawRectangle({
+      x: 40,
+      y: 40,
+      width: width - 80,
+      height: height - 80,
+      borderColor: rgb(0.2, 0.2, 0.2),
+      borderWidth: 1,
+    });
+
+    newPage.drawRectangle({
+      x: 40,
+      y: height - 90,
+      width: width - 80,
+      height: 40,
+      color: rgb(0.92, 0.96, 1),
+      borderColor: rgb(0.2, 0.2, 0.2),
+      borderWidth: 1,
+    });
     const boldFont = await doc.embedFont(StandardFonts.HelveticaBold);
     const regularFont = await doc.embedFont(StandardFonts.Helvetica);
     const fontSize = 12;
@@ -242,7 +273,7 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
       y: height - 70,
       size: headerFontSize,
       font: boldFont,
-      color: rgb(0, 0, 0),
+      color: rgb(0.1, 0.3, 0.6),
     });
 
     const scoreLabel = `Score: ${scoreText}`;
@@ -252,7 +283,7 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
       y: height - 70,
       size: headerFontSize,
       font: boldFont,
-      color: rgb(0, 0, 0),
+      color: rgb(0.1, 0.3, 0.6),
     });
 
     const centerDetails = [
@@ -269,7 +300,7 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
         y: yCenterStart - idx * 20,
         size: fontSize,
         font: regularFont,
-        color: rgb(0, 0, 0),
+        color: rgb(0.2, 0.2, 0.2),
       });
     });
 

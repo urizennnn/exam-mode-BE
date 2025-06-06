@@ -18,15 +18,22 @@ import {
   sendTranscript,
 } from './utils/exam.utils';
 import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
+import { Queue, Job } from 'bullmq';
 import { EXAM_SCHEDULER_QUEUE } from 'src/utils/constants';
 
 @Injectable()
 export class ExamService {
   private readonly logger = new Logger(ExamService.name);
 
+  private formatError(error: unknown): string {
+    return error instanceof Error
+      ? (error.stack ?? error.message)
+      : String(error);
+  }
+
   constructor(
-    @InjectQueue(EXAM_SCHEDULER_QUEUE) private readonly queue: Queue,
+    @InjectQueue(EXAM_SCHEDULER_QUEUE)
+    private readonly queue: Queue<{ examId: string }, unknown, string>,
     @InjectModel(Exam.name) private readonly examModel: Model<ExamDocument>,
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
     private readonly jwtService: JwtService,
@@ -63,7 +70,7 @@ export class ExamService {
     } catch (error) {
       this.logger.error(
         `createExam failed for key="${dto.examKey}"`,
-        error?.stack ?? String(error),
+        this.formatError(error),
       );
       throw new BadRequestException('Failed to create/update exam');
     }
@@ -90,7 +97,7 @@ export class ExamService {
       }
       this.logger.error(
         `getExamById failed for id="${examId}"`,
-        error?.stack ?? String(error),
+        this.formatError(error),
       );
       throw new BadRequestException('Error fetching exam');
     }
@@ -103,7 +110,7 @@ export class ExamService {
       this.logger.log(`Found ${exams.length} exams`);
       return exams;
     } catch (error) {
-      this.logger.error('getAllExams failed', error?.stack ?? String(error));
+      this.logger.error('getAllExams failed', this.formatError(error));
       throw new BadRequestException('Failed to retrieve exams');
     }
   }
@@ -124,7 +131,7 @@ export class ExamService {
       }
       this.logger.error(
         `deleteExam failed for id="${examId}"`,
-        error?.stack ?? String(error),
+        this.formatError(error),
       );
       throw new BadRequestException('Failed to delete exam');
     }
@@ -149,7 +156,7 @@ export class ExamService {
       }
       this.logger.error(
         `deleteManyExams failed for IDs=[${examIds.join(', ')}]`,
-        error?.stack ?? String(error),
+        this.formatError(error),
       );
       throw new BadRequestException('Failed to delete exams');
     }
@@ -175,7 +182,7 @@ export class ExamService {
       }
       this.logger.error(
         `updateExam failed for id="${examId}"`,
-        error?.stack ?? String(error),
+        this.formatError(error),
       );
       throw new BadRequestException('Failed to update exam');
     }
@@ -305,7 +312,7 @@ export class ExamService {
       }
       this.logger.error(
         `sendInvites failed for examId="${examId}"`,
-        error?.stack ?? String(error),
+        this.formatError(error),
       );
       throw new BadRequestException('Failed to send invites');
     }
@@ -342,10 +349,20 @@ export class ExamService {
         email,
         mode: 'student',
       });
+
+      const shuffled = [...exam.question_text];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+
       this.logger.log(
         `Student login successful, token issued for email="${email}"`,
       );
-      return { access_token: token, exam };
+      return {
+        access_token: token,
+        exam: { ...exam.toObject(), question_text: shuffled },
+      };
     } catch (error) {
       if (
         error instanceof NotFoundException ||
@@ -355,7 +372,7 @@ export class ExamService {
       }
       this.logger.error(
         `studentLogin failed for examKey="${examKey}", email="${email}"`,
-        error?.stack ?? String(error),
+        this.formatError(error),
       );
       throw new BadRequestException('Error during student login');
     }
@@ -395,7 +412,7 @@ export class ExamService {
       }
       this.logger.error(
         `updateSubmission failed for examId="${examId}", email="${dto.email}"`,
-        error?.stack ?? String(error),
+        this.formatError(error),
       );
       throw new BadRequestException('Failed to update transcript');
     }
@@ -427,7 +444,7 @@ export class ExamService {
       }
       this.logger.error(
         `dropEmailFromInvite failed for examKey="${examKey}", email="${email}"`,
-        error?.stack ?? String(error),
+        this.formatError(error),
       );
       throw new BadRequestException('Failed to drop email from invites');
     }
@@ -449,7 +466,7 @@ export class ExamService {
     } catch (error) {
       this.logger.error(
         `searchExam failed for key="${examKey}"`,
-        error?.stack ?? String(error),
+        this.formatError(error),
       );
       throw new BadRequestException('Failed to search exams');
     }
@@ -501,7 +518,7 @@ export class ExamService {
       }
       this.logger.error(
         `sendExamBack failed for examId="${examId}"`,
-        error?.stack ?? String(error),
+        this.formatError(error),
       );
       throw new BadRequestException('Failed to send transcripts');
     }
@@ -538,7 +555,7 @@ export class ExamService {
       }
       this.logger.error(
         `duplicateExam failed for examId="${examId}", newKey="${examKey}"`,
-        error?.stack ?? String(error),
+        this.formatError(error),
       );
       throw new BadRequestException('Failed to duplicate exam');
     }
@@ -550,7 +567,9 @@ export class ExamService {
         `Scheduling exam id="${examId}" for date="${startAt.toISOString()}"`,
       );
       if (isNaN(startAt.getTime())) {
-        this.logger.warn(`Invalid date provided to scheduleExam: "${startAt}"`);
+        this.logger.warn(
+          `Invalid date provided to scheduleExam: "${startAt.toISOString()}"`,
+        );
         throw new BadRequestException('Invalid startAt date');
       }
 
@@ -572,7 +591,8 @@ export class ExamService {
       exam.access = ExamAccessType.SCHEDULED;
       await exam.save();
 
-      const prevJob = await this.queue.getJob(exam._id.toString());
+      const prevJob: Job<unknown, unknown, string> | null =
+        await this.queue.getJob(exam._id.toString());
       if (prevJob) {
         this.logger.log(
           `Removing previous schedule job for examId="${exam._id.toString()}"`,
@@ -604,7 +624,7 @@ export class ExamService {
       }
       this.logger.error(
         `scheduleExam failed for examId="${examId}"`,
-        error?.stack ?? String(error),
+        this.formatError(error),
       );
       throw new BadRequestException('Failed to schedule exam');
     }
