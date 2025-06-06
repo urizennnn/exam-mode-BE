@@ -18,7 +18,7 @@ import {
   sendTranscript,
 } from './utils/exam.utils';
 import { InjectQueue } from '@nestjs/bullmq';
-import { Queue, Job } from 'bullmq';
+import { Queue } from 'bullmq';
 import { EXAM_SCHEDULER_QUEUE } from 'src/utils/constants';
 
 @Injectable()
@@ -591,8 +591,7 @@ export class ExamService {
       exam.access = ExamAccessType.SCHEDULED;
       await exam.save();
 
-      const prevJob: Job<unknown, unknown, string> | null =
-        await this.queue.getJob(exam._id.toString());
+      const prevJob = await this.queue.getJob(exam._id.toString());
       if (prevJob) {
         this.logger.log(
           `Removing previous schedule job for examId="${exam._id.toString()}"`,
