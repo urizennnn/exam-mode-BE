@@ -15,6 +15,11 @@ export const ProcessControllerSwagger = {
   processPdf: applyDecorators(
     ApiOperation({ summary: 'Extract and parse questions from an exam PDF' }),
     ApiConsumes('multipart/form-data'),
+    ApiQuery({
+      name: 'examKey',
+      description: 'Unique key identifying the exam',
+      schema: { type: 'string' },
+    }),
     ApiBody({
       schema: {
         type: 'object',

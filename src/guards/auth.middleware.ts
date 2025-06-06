@@ -13,7 +13,7 @@ import { Request } from 'express';
 import { JwtService } from '@nestjs/jwt';
 import { NEEDS_AUTH } from 'src/common';
 import { User } from 'src/modules/users/models/user.model';
-import { Model, FilterQuery, Types } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
 
 export type JwtPayload = Pick<User & Document, 'email'>;
@@ -55,7 +55,7 @@ class JwtGuardUtils {
 
   async verifyAndValidateToken(token: string): Promise<JwtPayload> {
     try {
-      const payload = (await this.jwtService.verify(token)) as JwtPayload;
+      const payload = await this.jwtService.verifyAsync<JwtPayload>(token);
       if (!payload || typeof payload !== 'object' || !payload.email) {
         throw new HttpException(
           'Invalid token payload',
@@ -110,9 +110,7 @@ export class JwtGuard extends AuthGuard('jwt') implements CanActivate {
       payload = await this.utils.verifyAndValidateToken(token);
     } catch (err) {
       if (err instanceof HttpException && err.message === 'Token has expired') {
-        const decoded = this.utils.jwtService.decode(
-          token,
-        ) as JwtPayload | null;
+        const decoded = this.utils.jwtService.decode<JwtPayload | null>(token);
         if (decoded?.email) {
           await this.userModel.updateOne(
             { email: decoded.email },
