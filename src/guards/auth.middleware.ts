@@ -11,7 +11,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { TokenExpiredError } from 'jsonwebtoken';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { NEEDS_AUTH } from 'src/common';
 import { User } from 'src/modules/users/models/user.model';
 import type { Request } from 'express';
@@ -57,14 +57,18 @@ export class JwtGuard extends AuthGuard('jwt') implements CanActivate {
       payload = this.jwtService.verify<JwtPayload>(token);
     } catch (err) {
       if (err instanceof TokenExpiredError) {
-        const decoded = this.jwtService.decode(token) as JwtPayload | null;
-        if (decoded?.email) {
+        const decoded: unknown = this.jwtService.decode(token);
+        const decodedEmail =
+          typeof decoded === 'object' && decoded && 'email' in decoded
+            ? (decoded as JwtPayload).email
+            : null;
+        if (decodedEmail) {
           await this.userModel.updateOne(
-            { email: decoded.email },
+            { email: decodedEmail },
             { isSignedIn: false, currentSessionId: null },
           );
           this.logger.warn(
-            `Token expired – cleared session for ${decoded.email}`,
+            `Token expired – cleared session for ${decodedEmail}`,
           );
         }
         throw new HttpException('Token has expired', HttpStatus.UNAUTHORIZED);
@@ -80,7 +84,9 @@ export class JwtGuard extends AuthGuard('jwt') implements CanActivate {
       );
     }
 
-    (req as any).user = { id: user._id };
+    (req as Request & { user?: { id: Types.ObjectId } }).user = {
+      id: user._id,
+    };
     return true;
   }
 }

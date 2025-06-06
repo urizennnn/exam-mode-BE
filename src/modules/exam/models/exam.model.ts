@@ -78,8 +78,8 @@ export class Exam {
   @Prop({ required: false })
   submissions: Array<Submissions>;
 
-  @Prop({ type: String, required: true })
-  question?: string;
+  @Prop({ type: [String], default: [] })
+  question_text: string[];
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   lecturer: Types.ObjectId;

@@ -8,6 +8,7 @@ export enum PdfJobs {
 
 export interface ParseJobData {
   tmpPath: string;
+  examKey: string;
 }
 
 export interface MarkJobData extends ParseJobData {

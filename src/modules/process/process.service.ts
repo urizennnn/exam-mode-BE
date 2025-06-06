@@ -90,6 +90,8 @@ Rules:
 - Detect the question type accurately.
 - Do NOT paraphrase or modify any part of the question, options, or answer.
 - For theory questions, never invent answers; include "answer" only when it appears verbatim in the source.
+- Remove any leading or trailing whitespace from all text.
+- Remove duplicate options if shown in the source.
 - If no questions are present, return an empty array.
 Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
 
@@ -101,11 +103,11 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
     private readonly cloudinary: CloudinaryService,
   ) {}
 
-  async enqueueProcessPdf(file: Express.Multer.File) {
+  async enqueueProcessPdf(file: Express.Multer.File, examKey: string) {
     this.validateFile(file);
     const tmpPath = `/tmp/${Date.now()}-${file.originalname}`;
     await writeFile(tmpPath, file.buffer);
-    const job = await this.producer.enqueueProcess({ tmpPath });
+    const job = await this.producer.enqueueProcess({ tmpPath, examKey });
     log.verbose(`Queued parse job ${job.id} for ${file.originalname}`);
     return { jobId: job.id };
   }
@@ -116,22 +118,29 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
     email: string,
     studentAnswer: string,
   ) {
-    this.validateFile(file);
-    if (!(await this.examModel.exists({ examKey })))
-      throw new BadRequestException('Exam not found');
-    const tmpPath = `/tmp/${Date.now()}-${file.originalname}`;
-    await writeFile(tmpPath, file.buffer);
-    const job = await this.producer.enqueueMark({
-      tmpPath,
-      examKey,
-      email,
-      studentAnswer,
-    });
-    log.verbose(`Queued mark job ${job.id} for exam ${examKey} – ${email}`);
-    return {
-      jobId: job.id,
-      message: 'Exam marking job queued successfully',
-    };
+    try {
+      this.validateFile(file);
+      if (!(await this.examModel.exists({ examKey })))
+        throw new BadRequestException('Exam not found');
+      const tmpPath = `/tmp/${Date.now()}-${file.originalname}`;
+      await writeFile(tmpPath, file.buffer);
+      const job = await this.producer.enqueueMark({
+        tmpPath,
+        examKey,
+        email,
+        studentAnswer,
+      });
+      log.verbose(`Queued mark job ${job.id} for exam ${examKey} – ${email}`);
+      return {
+        jobId: job.id,
+        message: 'Exam marking job queued successfully',
+      };
+    } catch (e) {
+      log.error(`Error in enqueueMarkPdf: ${JSON.stringify(e)}`);
+      throw new BadRequestException(
+        `Error processing PDF: ${e instanceof Error ? e.message : e}`,
+      );
+    }
   }
 
   async getJobInfo(id: string): Promise<JobInfo> {
@@ -158,7 +167,7 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
     return info;
   }
 
-  async parsePdfWorker({ tmpPath }: ParseJobData): Promise<unknown> {
+  async parsePdfWorker({ tmpPath, examKey }: ParseJobData): Promise<unknown> {
     log.debug(`Processing parse worker for ${tmpPath}`);
     try {
       const buffer = await readFile(tmpPath);
@@ -176,12 +185,25 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
           .filter((l) => l.trim() !== ',')
           .join('\n'),
       );
+      let parsed: unknown;
       try {
-        return JSON.parse(raw) as unknown;
+        parsed = JSON.parse(raw) as unknown;
       } catch {
         log.warn(`AI returned non-JSON output for ${tmpPath}; returning raw`);
-        return raw;
+        parsed = raw;
       }
+
+      if (examKey) {
+        const exam = await this.examModel.findOne({ examKey }).exec();
+        if (exam) {
+          log.debug(`Updating exam ${examKey} with parsed questions`);
+          const arr = Array.isArray(parsed) ? parsed : [parsed];
+          exam.question_text = arr.map((q) => String(q));
+          await exam.save();
+        }
+      }
+
+      return parsed;
     } finally {
       await unlink(tmpPath);
     }
@@ -192,7 +214,7 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
     try {
       return await this.performMark(data);
     } catch (e) {
-      log.error(`Error in markPdfWorker: ${JSON.stringify(e)}`);
+      log.error(`Error in markPdfWorker: ${JSON.stringify(e.message)}`);
       throw new BadRequestException(
         `Error processing PDF: ${e instanceof Error ? e.message : e}`,
       );
@@ -200,133 +222,163 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
   }
 
   private async performMark(data: MarkJobData): Promise<string> {
-    const { tmpPath, examKey, email, studentAnswer } = data;
-    const exam = await this.examModel.findOne({ examKey }).exec();
-    if (!exam) throw new NotFoundException('Exam not found');
-    const studenName = exam.invites.find((i) => i.email === email)?.name;
-    const buffer = await readFile(tmpPath);
-    const extracted = (await safeExtract(buffer)).trim();
-    if (!extracted) throw new BadRequestException('No text found in PDF');
+    try {
+      const { tmpPath, examKey, email, studentAnswer } = data;
+      const exam = await this.examModel.findOne({ examKey }).exec();
+      if (!exam) throw new NotFoundException('Exam not found');
+      const studenName = exam.invites.find((i) => i.email === email)?.name;
+      const buffer = await readFile(tmpPath);
+      const extracted = (await safeExtract(buffer)).trim();
+      if (!extracted) throw new BadRequestException('No text found in PDF');
 
-    const scoreText = (
-      await this.aiGenerateWithRetry([this.markPrompt, extracted])
-    ).trim();
-    if (!/^\s*\d+\s*\/\s*\d+\s*$/.test(scoreText)) {
-      throw new BadRequestException(`Unexpected score format "${scoreText}"`);
-    }
-
-    const doc = await PDFDocument.create();
-    const existingPdf = await PDFDocument.load(buffer);
-    const newPage = doc.addPage();
-    const { width, height } = newPage.getSize();
-    const boldFont = await doc.embedFont(StandardFonts.HelveticaBold);
-    const regularFont = await doc.embedFont(StandardFonts.Helvetica);
-    const fontSize = 12;
-    const headerFontSize = 14;
-
-    const logoPath = path.resolve('src', 'assets', 'images', 'logo.png');
-    const logoBytes = await readFile(logoPath);
-    const logoImg = await doc.embedPng(logoBytes);
-    const logoScale = 0.4;
-    newPage.drawImage(logoImg, {
-      x: 50,
-      y: height - logoImg.height * logoScale - 50,
-      width: logoImg.width * logoScale,
-      height: logoImg.height * logoScale,
-    });
-
-    const headerText = 'Exam-Module';
-    const headerWidth = boldFont.widthOfTextAtSize(headerText, headerFontSize);
-    newPage.drawText(headerText, {
-      x: (width - headerWidth) / 2,
-      y: height - 70,
-      size: headerFontSize,
-      font: boldFont,
-      color: rgb(0, 0, 0),
-    });
-
-    const scoreLabel = `Score: ${scoreText}`;
-    const scoreWidth = boldFont.widthOfTextAtSize(scoreLabel, headerFontSize);
-    newPage.drawText(scoreLabel, {
-      x: width - scoreWidth - 50,
-      y: height - 70,
-      size: headerFontSize,
-      font: boldFont,
-      color: rgb(0, 0, 0),
-    });
-
-    const centerDetails = [
-      `Student: ${email} (${studenName})`,
-      `Exam Key: ${examKey}`,
-      `Time Submitted: ${new Date().toISOString().split('T')[0]}`,
-    ];
-    const yCenterStart = height - 100;
-    centerDetails.forEach((line, idx) => {
-      const textWidth = regularFont.widthOfTextAtSize(line, fontSize);
-      const x = (width - textWidth) / 2;
-      newPage.drawText(line, {
-        x,
-        y: yCenterStart - idx * 20,
-        size: fontSize,
-        font: regularFont,
-        color: rgb(0, 0, 0),
-      });
-    });
-
-    const dividerY = yCenterStart - centerDetails.length * 20 - 20;
-    newPage.drawLine({
-      start: { x: 50, y: dividerY },
-      end: { x: width - 50, y: dividerY },
-      thickness: 1,
-      color: rgb(0.7, 0.7, 0.7),
-    });
-
-    const contentPages = await doc.embedPages(existingPdf.getPages());
-    if (contentPages.length) {
-      const embeddedPage = contentPages[0];
-      const contentStartY = dividerY - 40;
-      const contentWidth = width - 100;
-      const scale = contentWidth / embeddedPage.width;
-      const scaledHeight = embeddedPage.height * scale;
-      if (scaledHeight < contentStartY) {
-        newPage.drawPage(embeddedPage, {
-          x: 50,
-          y: contentStartY - scaledHeight,
-          width: contentWidth,
-          height: scaledHeight,
-        });
-      } else {
-        const fitScale = (contentStartY - 40) / embeddedPage.height;
-        newPage.drawPage(embeddedPage, {
-          x: 50,
-          y: 40,
-          width: embeddedPage.width * fitScale,
-          height: contentStartY - 80,
-        });
+      const scoreText = (
+        await this.aiGenerateWithRetry([this.markPrompt, extracted])
+      ).trim();
+      if (!/^\s*\d+\s*\/\s*\d+\s*$/.test(scoreText)) {
+        throw new BadRequestException(`Unexpected score format "${scoreText}"`);
       }
+
+      const doc = await PDFDocument.create();
+      const existingPdf = await PDFDocument.load(buffer);
+      const newPage = doc.addPage();
+      const { width, height } = newPage.getSize();
+
+      newPage.drawRectangle({
+        x: 40,
+        y: 40,
+        width: width - 80,
+        height: height - 80,
+        borderColor: rgb(0.2, 0.2, 0.2),
+        borderWidth: 1,
+      });
+
+      newPage.drawRectangle({
+        x: 40,
+        y: height - 90,
+        width: width - 80,
+        height: 40,
+        color: rgb(0.92, 0.96, 1),
+        borderColor: rgb(0.2, 0.2, 0.2),
+        borderWidth: 1,
+      });
+      const boldFont = await doc.embedFont(StandardFonts.HelveticaBold);
+      const regularFont = await doc.embedFont(StandardFonts.Helvetica);
+      const fontSize = 12;
+      const headerFontSize = 14;
+
+      const logoPath = path.resolve('src', 'assets', 'images', 'logo.png');
+      const logoBytes = await readFile(logoPath);
+      const logoImg = await doc.embedPng(logoBytes);
+      const logoScale = 0.4;
+      newPage.drawImage(logoImg, {
+        x: 50,
+        y: height - logoImg.height * logoScale - 50,
+        width: logoImg.width * logoScale,
+        height: logoImg.height * logoScale,
+      });
+
+      const headerText = 'Exam-Module';
+      const headerWidth = boldFont.widthOfTextAtSize(
+        headerText,
+        headerFontSize,
+      );
+      newPage.drawText(headerText, {
+        x: (width - headerWidth) / 2,
+        y: height - 70,
+        size: headerFontSize,
+        font: boldFont,
+        color: rgb(0.1, 0.3, 0.6),
+      });
+
+      const scoreLabel = `Score: ${scoreText}`;
+      const scoreWidth = boldFont.widthOfTextAtSize(scoreLabel, headerFontSize);
+      newPage.drawText(scoreLabel, {
+        x: width - scoreWidth - 50,
+        y: height - 70,
+        size: headerFontSize,
+        font: boldFont,
+        color: rgb(0.1, 0.3, 0.6),
+      });
+
+      const centerDetails = [
+        `Student: ${email} (${studenName})`,
+        `Exam Key: ${examKey}`,
+        `Time Submitted: ${new Date().toISOString().split('T')[0]}`,
+      ];
+      const yCenterStart = height - 100;
+      centerDetails.forEach((line, idx) => {
+        const textWidth = regularFont.widthOfTextAtSize(line, fontSize);
+        const x = (width - textWidth) / 2;
+        newPage.drawText(line, {
+          x,
+          y: yCenterStart - idx * 20,
+          size: fontSize,
+          font: regularFont,
+          color: rgb(0.2, 0.2, 0.2),
+        });
+      });
+
+      const dividerY = yCenterStart - centerDetails.length * 20 - 20;
+      newPage.drawLine({
+        start: { x: 50, y: dividerY },
+        end: { x: width - 50, y: dividerY },
+        thickness: 1,
+        color: rgb(0.7, 0.7, 0.7),
+      });
+
+      const contentPages = await doc.embedPages(existingPdf.getPages());
+      if (contentPages.length) {
+        const embeddedPage = contentPages[0];
+        const contentStartY = dividerY - 40;
+        const contentWidth = width - 100;
+        const scale = contentWidth / embeddedPage.width;
+        const scaledHeight = embeddedPage.height * scale;
+        if (scaledHeight < contentStartY) {
+          newPage.drawPage(embeddedPage, {
+            x: 50,
+            y: contentStartY - scaledHeight,
+            width: contentWidth,
+            height: scaledHeight,
+          });
+        } else {
+          const fitScale = (contentStartY - 40) / embeddedPage.height;
+          newPage.drawPage(embeddedPage, {
+            x: 50,
+            y: 40,
+            width: embeddedPage.width * fitScale,
+            height: contentStartY - 80,
+          });
+        }
+      }
+
+      const pdfBytes = await doc.save();
+      const uploadFile = {
+        buffer: Buffer.from(pdfBytes),
+        originalname: `transcript-${examKey}-${email}.pdf`,
+      } as Express.Multer.File;
+      const { secure_url: transcriptUrl } =
+        await this.cloudinary.uploadImage(uploadFile);
+
+      const submission: Submissions = {
+        email: email.toLowerCase(),
+        studentAnswer,
+        score: parseInt(scoreText.split('/')[0], 10),
+        transcript: transcriptUrl,
+        timeSubmitted: new Date().toISOString(),
+      };
+      exam.submissions.push(submission);
+      await exam.save();
+      await unlink(tmpPath);
+
+      log.log(`Mark worker completed for ${tmpPath}`);
+      return scoreText;
+    } catch (e) {
+      log.error(`Error in performMark: ${JSON.stringify(e.message)}`);
+      log.error(`Error details: ${JSON.stringify(e.stack)}`);
+      throw new BadRequestException(
+        `Error processing PDF: ${e instanceof Error ? e.message : e}`,
+      );
     }
-
-    const pdfBytes = await doc.save();
-    const uploadFile = {
-      buffer: Buffer.from(pdfBytes),
-      originalname: `transcript-${examKey}-${email}.pdf`,
-    } as Express.Multer.File;
-    const { secure_url: transcriptUrl } =
-      await this.cloudinary.uploadImage(uploadFile);
-
-    const submission: Submissions = {
-      email: email.toLowerCase(),
-      studentAnswer,
-      score: parseInt(scoreText.split('/')[0], 10),
-      transcript: transcriptUrl,
-      timeSubmitted: new Date().toISOString(),
-    };
-    exam.submissions.push(submission);
-    await exam.save();
-    await unlink(tmpPath);
-
-    log.log(`Mark worker completed for ${tmpPath}`);
-    return scoreText;
   }
 
   private async aiGenerateWithRetry(

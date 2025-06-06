@@ -92,4 +92,3 @@ export class CreateExamDto {
   @Type(() => SettingsDto)
   settings: SettingsDto;
 }
-
