@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { Exam, ExamDocument } from './models/exam.model';
+import { Exam, ExamDocument, ExamAccessType } from './models/exam.model';
 import { CreateExamDto } from './dto/create-exam.dto';
 import { Invite } from './dto/invite-students.dto';
 import { User, UserDocument } from '../users/models/user.model';
@@ -43,7 +43,6 @@ export class ExamService {
     }
     return exam;
   }
-
 
   async getAllExams() {
     return this.examModel.find().exec();
@@ -93,5 +92,29 @@ export class ExamService {
     });
     await exam.save();
     return { message: 'Exam updated successfully' };
+  }
+
+  async studentLogin(email: string, examKey: string) {
+    const exam = await this.examModel.findOne({ examKey }).exec();
+    if (!exam) throw new NotFoundException('Exam not found');
+
+    if (
+      exam.access !== ExamAccessType.OPEN &&
+      !exam.invites.includes(email.toLowerCase())
+    ) {
+      throw new BadRequestException('Student not invited for this exam');
+    }
+
+    const questions = [...exam.question_text];
+    for (let i = questions.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [questions[i], questions[j]] = [questions[j], questions[i]];
+    }
+
+    return {
+      examName: exam.examName,
+      examKey: exam.examKey,
+      questions,
+    };
   }
 }

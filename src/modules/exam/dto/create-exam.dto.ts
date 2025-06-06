@@ -73,6 +73,15 @@ export class CreateExamDto {
   file?: string;
 
   @ApiProperty({
+    description: 'Parsed questions text',
+    type: [String],
+    required: false,
+  })
+  @IsOptional()
+  @IsArray()
+  question_text?: string[];
+
+  @ApiProperty({
     description: 'Lecturer ID who created the exam',
     example: '6611ae9459928430fb3cf7b1',
   })
@@ -92,4 +101,3 @@ export class CreateExamDto {
   @Type(() => SettingsDto)
   settings: SettingsDto;
 }
-

@@ -22,8 +22,9 @@ export class ProcessController {
   @Docs.processPdf
   async processPdf(
     @UploadedFile() file: Express.Multer.File,
+    @Query('examKey') examKey: string,
   ): Promise<{ jobId: string | undefined }> {
-    return this.service.enqueueProcessPdf(file);
+    return this.service.enqueueProcessPdf(file, examKey);
   }
 
   @Post('mark/:examKey')

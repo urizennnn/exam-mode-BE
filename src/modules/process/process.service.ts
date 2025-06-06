@@ -9,10 +9,12 @@ import { GenerativeModel, GoogleGenerativeAI } from '@google/generative-ai';
 import { execFileSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { writeFile, readFile, unlink } from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
+import PDFDocument from 'pdfkit';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
+import { Queue, Job } from 'bullmq';
 
 import { PDF_QUEUE, ParseJobData, MarkJobData } from 'src/utils/constants';
 import { Exam, ExamDocument } from '../exam/models/exam.model';
@@ -68,11 +70,13 @@ Return ONLY the score as X/Y.`.trim();
     @InjectQueue(PDF_QUEUE) private readonly queue: Queue,
   ) {}
 
-  async enqueueProcessPdf(file: Express.Multer.File) {
+  async enqueueProcessPdf(file: Express.Multer.File, examKey: string) {
     this.validateFile(file);
+    if (!(await this.examModel.exists({ examKey })))
+      throw new BadRequestException('Exam not found');
     const tmpPath = `/tmp/${Date.now()}-${file.originalname}`;
     await writeFile(tmpPath, file.buffer);
-    const job = await this.producer.enqueueProcess({ tmpPath });
+    const job = await this.producer.enqueueProcess({ tmpPath, examKey });
     log.verbose(`Queued parse job ${job.id} for ${file.originalname}`);
     return { jobId: job.id };
   }
@@ -109,21 +113,21 @@ Return ONLY the score as X/Y.`.trim();
 
     const state = await job.getState();
     const info = {
-      id: job.id,
-      name: job.name,
+      id: job.id as string | number | undefined,
+      name: job.name as string,
       state,
-      progress: job.progress,
-      attemptsMade: job.attemptsMade,
-      processedOn: job.processedOn,
-      finishedOn: job.finishedOn,
-      result: job.returnvalue ?? null,
+      progress: job.progress as number | object | undefined,
+      attemptsMade: job.attemptsMade as number,
+      processedOn: job.processedOn as number | null,
+      finishedOn: job.finishedOn as number | null,
+      result: (job.returnvalue ?? null) as unknown,
       failedReason: job.failedReason ?? null,
     };
     log.debug(`Job ${id} state: ${state}`);
     return info;
   }
 
-  async parsePdfWorker({ tmpPath }: ParseJobData) {
+  async parsePdfWorker({ tmpPath, examKey }: ParseJobData) {
     log.debug(`Processing parse worker for ${tmpPath}`);
     const buffer = await readFile(tmpPath);
     const extracted = (await safeExtract(buffer)).trim();
@@ -144,8 +148,14 @@ Return ONLY the score as X/Y.`.trim();
 
     await unlink(tmpPath);
     try {
-      const parsed = JSON.parse(raw);
+      const parsed: unknown = JSON.parse(raw);
       log.debug(`Parse worker completed for ${tmpPath}`);
+      if (Array.isArray(parsed)) {
+        await this.examModel.updateOne(
+          { examKey },
+          { question_text: parsed.map((q) => JSON.stringify(q)) },
+        );
+      }
       return parsed;
     } catch {
       log.warn(`AI returned non-JSON output for ${tmpPath}; returning raw`);
@@ -182,8 +192,14 @@ Return ONLY the score as X/Y.`.trim();
     await exam.save();
     await unlink(tmpPath);
 
+    const pdfPath = await this.generateResultPdf(
+      exam.examName,
+      email,
+      scoreText,
+    );
+
     log.debug(`Marked exam ${examKey} for ${email}: ${scoreText}`);
-    return scoreText;
+    return pdfPath;
   }
 
   private async aiGenerateWithRetry(
@@ -201,6 +217,39 @@ Return ONLY the score as X/Y.`.trim();
       await sleep(500 * attempt);
       return this.aiGenerateWithRetry(msgs, attempt + 1);
     }
+  }
+
+  private async generateResultPdf(
+    examName: string,
+    email: string,
+    score: string,
+  ): Promise<string> {
+    const doc = new PDFDocument({ margin: 50 });
+    const filePath = `/tmp/result-${Date.now()}.pdf`;
+    const stream = createWriteStream(filePath);
+    doc.pipe(stream);
+
+    doc
+      .fillColor('#2e86de')
+      .fontSize(24)
+      .text('Exam Result', { align: 'center' });
+
+    doc.moveDown().fillColor('#000').fontSize(18).text(`Exam: ${examName}`);
+
+    doc.moveDown().fontSize(16).text(`Student: ${email}`);
+    doc.moveDown().fontSize(16).text(`Score: ${score}`);
+
+    doc
+      .moveDown()
+      .lineWidth(1)
+      .strokeColor('#2e86de')
+      .lineTo(doc.page.margins.left, doc.y)
+      .lineTo(doc.page.width - doc.page.margins.right, doc.y)
+      .stroke();
+
+    doc.end();
+    await new Promise((resolve) => stream.on('finish', resolve));
+    return filePath;
   }
 
   private validateFile(file: Express.Multer.File) {

@@ -56,4 +56,12 @@ export class ExamController {
     const user = req.user!.id;
     return this.examService.updateExam(id, dto, user);
   }
+
+  @Post('login')
+  async studentLogin(
+    @Body('email') email: string,
+    @Body('examKey') examKey: string,
+  ) {
+    return this.examService.studentLogin(email, examKey);
+  }
 }
