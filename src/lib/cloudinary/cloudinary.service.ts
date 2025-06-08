@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   v2 as Cloudinary,
   UploadApiResponse,
@@ -7,6 +7,7 @@ import {
 
 @Injectable()
 export class CloudinaryService {
+  private readonly logger = new Logger(CloudinaryService.name);
   constructor(
     @Inject('Cloudinary')
     private readonly cloudinary: typeof Cloudinary,
@@ -23,7 +24,13 @@ export class CloudinaryService {
           error: UploadApiErrorResponse | undefined,
           result: UploadApiResponse,
         ) => {
-          if (error) return reject(new Error(error.message));
+          if (error) {
+            this.logger.error(`Cloudinary upload failed: ${error.message}`);
+            return reject(new Error(error.message));
+          }
+          this.logger.debug(
+            `Uploaded file to Cloudinary: ${result.secure_url}`,
+          );
           resolve(result);
         },
       );
