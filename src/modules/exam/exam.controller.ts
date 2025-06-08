@@ -118,6 +118,14 @@ export class ExamController {
     return this.examService.studentLogin(key, email.email);
   }
 
+  @Post(':key/logout')
+  async studentLogout(
+    @Param('key') key: string,
+    @Body() email: { email: string },
+  ) {
+    return this.examService.studentLogout(key, email.email);
+  }
+
   @NeedsAuth()
   @Post(':id/send')
   async sendExamBack(

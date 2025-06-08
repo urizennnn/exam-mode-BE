@@ -8,6 +8,7 @@ import { ExamModule } from './modules/exam/exam.module';
 import { JwtModule } from '@nestjs/jwt';
 import { MongooseModule } from '@nestjs/mongoose';
 import { QueueModule } from './lib/queue/queue.module';
+import { EventsModule } from './lib/events/events.module';
 import 'dotenv/config';
 import { CloudinaryModule } from './lib/cloudinary/cloudinary.module';
 
@@ -31,6 +32,7 @@ import { CloudinaryModule } from './lib/cloudinary/cloudinary.module';
     ExamModule,
     QueueModule,
     CloudinaryModule,
+    EventsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
