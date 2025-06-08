@@ -9,8 +9,6 @@ import {
 } from 'src/utils/constants';
 import { randomUUID } from 'node:crypto';
 
-const ONE_HOUR = 60 * 60;
-
 @Injectable()
 export class PdfQueueProducer {
   private readonly log = new Logger(PdfQueueProducer.name);
@@ -25,7 +23,6 @@ export class PdfQueueProducer {
         delay: 1000,
       },
       jobId: randomUUID(),
-      removeOnComplete: { age: ONE_HOUR },
       removeOnFail: true,
     });
   }
@@ -39,7 +36,6 @@ export class PdfQueueProducer {
         delay: 1000,
       },
       jobId: randomUUID(),
-      removeOnComplete: { age: 1 },
       removeOnFail: true,
     });
   }
