@@ -3,6 +3,7 @@ export interface Submissions {
   studentAnswer: string;
   score: number;
   timeSubmitted: string;
+  timeSpent: number;
   transcript?: string;
 }
 

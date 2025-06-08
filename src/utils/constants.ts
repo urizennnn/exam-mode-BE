@@ -15,4 +15,5 @@ export interface MarkJobData extends ParseJobData {
   examKey: string;
   email: string;
   studentAnswer: string;
+  timeSpent: number;
 }

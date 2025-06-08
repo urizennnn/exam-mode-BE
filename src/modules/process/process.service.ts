@@ -117,6 +117,7 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
     examKey: string,
     email: string,
     studentAnswer: string,
+    timeSpent: number,
   ) {
     try {
       this.validateFile(file);
@@ -129,6 +130,7 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
         examKey,
         email,
         studentAnswer,
+        timeSpent,
       });
       log.verbose(`Queued mark job ${job.id} for exam ${examKey} – ${email}`);
       return {
@@ -224,7 +226,7 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
 
   private async performMark(data: MarkJobData): Promise<string> {
     try {
-      const { tmpPath, examKey, email, studentAnswer } = data;
+      const { tmpPath, examKey, email, studentAnswer, timeSpent } = data;
       const exam = await this.examModel.findOne({ examKey }).exec();
       if (!exam) throw new NotFoundException('Exam not found');
       const studenName = exam.invites.find((i) => i.email === email)?.name;
@@ -243,25 +245,6 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
       const existingPdf = await PDFDocument.load(buffer);
       const newPage = doc.addPage();
       const { width, height } = newPage.getSize();
-
-      newPage.drawRectangle({
-        x: 40,
-        y: 40,
-        width: width - 80,
-        height: height - 80,
-        borderColor: rgb(0.2, 0.2, 0.2),
-        borderWidth: 1,
-      });
-
-      newPage.drawRectangle({
-        x: 40,
-        y: height - 90,
-        width: width - 80,
-        height: 40,
-        color: rgb(0.92, 0.96, 1),
-        borderColor: rgb(0.2, 0.2, 0.2),
-        borderWidth: 1,
-      });
       const boldFont = await doc.embedFont(StandardFonts.HelveticaBold);
       const regularFont = await doc.embedFont(StandardFonts.Helvetica);
       const fontSize = 12;
@@ -305,6 +288,7 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
         `Student: ${email} (${studenName})`,
         `Exam Key: ${examKey}`,
         `Time Submitted: ${new Date().toISOString().split('T')[0]}`,
+        `Time Spent: ${timeSpent}s`,
       ];
       const yCenterStart = height - 100;
       centerDetails.forEach((line, idx) => {
@@ -320,37 +304,29 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
       });
 
       const dividerY = yCenterStart - centerDetails.length * 20 - 20;
-      newPage.drawLine({
-        start: { x: 50, y: dividerY },
-        end: { x: width - 50, y: dividerY },
-        thickness: 1,
-        color: rgb(0.7, 0.7, 0.7),
-      });
 
       const contentPages = await doc.embedPages(existingPdf.getPages());
-      if (contentPages.length) {
-        const embeddedPage = contentPages[0];
-        const contentStartY = dividerY - 40;
-        const contentWidth = width - 100;
-        const scale = contentWidth / embeddedPage.width;
-        const scaledHeight = embeddedPage.height * scale;
-        if (scaledHeight < contentStartY) {
-          newPage.drawPage(embeddedPage, {
-            x: 50,
-            y: contentStartY - scaledHeight,
-            width: contentWidth,
-            height: scaledHeight,
-          });
-        } else {
-          const fitScale = (contentStartY - 40) / embeddedPage.height;
-          newPage.drawPage(embeddedPage, {
-            x: 50,
-            y: 40,
-            width: embeddedPage.width * fitScale,
-            height: contentStartY - 80,
-          });
+      const contentWidth = width - 100;
+      const firstY = dividerY - 40;
+
+      contentPages.forEach((page, idx) => {
+        let targetPage = newPage;
+        let yPos = firstY;
+        if (idx > 0) {
+          targetPage = doc.addPage();
+          const size = targetPage.getSize();
+          yPos = size.height - 50;
         }
-      }
+
+        const scale = contentWidth / page.width;
+        const scaledHeight = page.height * scale;
+        targetPage.drawPage(page, {
+          x: 50,
+          y: yPos - scaledHeight,
+          width: contentWidth,
+          height: scaledHeight,
+        });
+      });
 
       const pdfBytes = await doc.save();
       const uploadFile = {
@@ -366,6 +342,7 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
         score: parseInt(scoreText.split('/')[0], 10),
         transcript: transcriptUrl,
         timeSubmitted: new Date().toISOString(),
+        timeSpent,
       };
       exam.submissions.push(submission);
       await exam.save();
