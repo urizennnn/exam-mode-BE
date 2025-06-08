@@ -12,7 +12,6 @@ import { CreateExamDto } from './dto/create-exam.dto';
 import { Invite } from './dto/invite-students.dto';
 import { User, UserDocument } from '../users/models/user.model';
 import { JwtService } from '@nestjs/jwt';
-import { Express } from 'express';
 import {
   returnEmails,
   returnNames,
@@ -24,6 +23,11 @@ import { Queue } from 'bullmq';
 import { EXAM_SCHEDULER_QUEUE } from 'src/utils/constants';
 import { ProcessService } from '../process/process.service';
 import { writeFile } from 'node:fs/promises';
+import { AppEvents } from 'src/lib/events/events.service';
+import {
+  STUDENT_IN_EVENT,
+  STUDENT_OUT_EVENT,
+} from 'src/lib/events/events.constants';
 
 @Injectable()
 export class ExamService {
@@ -42,7 +46,19 @@ export class ExamService {
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
     private readonly jwtService: JwtService,
     private readonly processService: ProcessService,
-  ) {}
+    private readonly events: AppEvents,
+  ) {
+    this.events.on(STUDENT_IN_EVENT, (id: string) => {
+      this.handleStudentIn(id).catch((e) =>
+        this.logger.error('handleStudentIn', this.formatError(e)),
+      );
+    });
+    this.events.on(STUDENT_OUT_EVENT, (id: string) => {
+      this.handleStudentOut(id).catch((e) =>
+        this.logger.error('handleStudentOut', this.formatError(e)),
+      );
+    });
+  }
 
   async createExam(dto: CreateExamDto, file?: Express.Multer.File) {
     try {
@@ -368,8 +384,7 @@ export class ExamService {
         throw new BadRequestException('Email already submitted');
       }
 
-      exam.ongoing += 1;
-      await exam.save();
+      this.events.emit(STUDENT_IN_EVENT, exam._id.toString());
       const token = await this.jwtService.signAsync({
         email,
         mode: 'student',
@@ -411,6 +426,30 @@ export class ExamService {
         this.formatError(error),
       );
       throw new BadRequestException('Error during student login');
+    }
+  }
+
+  async studentLogout(examKey: string, email: string) {
+    try {
+      this.logger.log(
+        `Student logout attempt: examKey="${examKey}", email="${email}"`,
+      );
+      const exam = await this.examModel.findOne({ examKey }).exec();
+      if (!exam) {
+        this.logger.warn(`Exam not found in studentLogout: key="${examKey}"`);
+        throw new NotFoundException('Exam not found');
+      }
+      this.events.emit(STUDENT_OUT_EVENT, exam._id.toString());
+      return { message: 'Logout successful' };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error(
+        `studentLogout failed for examKey="${examKey}", email="${email}"`,
+        this.formatError(error),
+      );
+      throw new BadRequestException('Error during student logout');
     }
   }
 
@@ -595,6 +634,16 @@ export class ExamService {
       );
       throw new BadRequestException('Failed to duplicate exam');
     }
+  }
+
+  private async handleStudentIn(examId: string) {
+    await this.examModel.updateOne({ _id: examId }, { $inc: { ongoing: 1 } });
+    this.logger.verbose(`Incremented ongoing count for exam ${examId}`);
+  }
+
+  private async handleStudentOut(examId: string) {
+    await this.examModel.updateOne({ _id: examId }, { $inc: { ongoing: -1 } });
+    this.logger.verbose(`Decremented ongoing count for exam ${examId}`);
   }
 
   async scheduleExam(examId: string, startAt: Date) {
