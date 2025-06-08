@@ -19,7 +19,7 @@ import { CloudinaryService } from 'src/lib/cloudinary/cloudinary.service';
 import { PDF_QUEUE, ParseJobData, MarkJobData } from 'src/utils/constants';
 import { Exam, ExamDocument } from '../exam/models/exam.model';
 import { PdfQueueProducer } from 'src/lib/queue/queue.producer';
-import { Submissions } from '../exam/interfaces/exam.interface';
+import { Submissions, ParsedQuestion } from '../exam/interfaces/exam.interface';
 
 interface JobInfo {
   id: string;
@@ -197,8 +197,10 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
         const exam = await this.examModel.findOne({ examKey }).exec();
         if (exam) {
           log.debug(`Updating exam ${examKey} with parsed questions`);
-          const arr = Array.isArray(parsed) ? parsed : [parsed];
-          exam.question_text = arr.map((q) => String(q));
+          const arr = (
+            Array.isArray(parsed) ? parsed : [parsed]
+          ) as ParsedQuestion[];
+          exam.question_text = arr;
           await exam.save();
         }
       }
@@ -214,10 +216,9 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
     try {
       return await this.performMark(data);
     } catch (e) {
-      log.error(`Error in markPdfWorker: ${JSON.stringify(e.message)}`);
-      throw new BadRequestException(
-        `Error processing PDF: ${e instanceof Error ? e.message : e}`,
-      );
+      const msg = e instanceof Error ? e.message : String(e);
+      log.error(`Error in markPdfWorker: ${JSON.stringify(msg)}`);
+      throw new BadRequestException(`Error processing PDF: ${msg}`);
     }
   }
 
@@ -373,11 +374,10 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
       log.log(`Mark worker completed for ${tmpPath}`);
       return scoreText;
     } catch (e) {
-      log.error(`Error in performMark: ${JSON.stringify(e.message)}`);
-      log.error(`Error details: ${JSON.stringify(e.stack)}`);
-      throw new BadRequestException(
-        `Error processing PDF: ${e instanceof Error ? e.message : e}`,
-      );
+      const err = e instanceof Error ? e : new Error(String(e));
+      log.error(`Error in performMark: ${JSON.stringify(err.message)}`);
+      log.error(`Error details: ${JSON.stringify(err.stack)}`);
+      throw new BadRequestException(`Error processing PDF: ${err.message}`);
     }
   }
 

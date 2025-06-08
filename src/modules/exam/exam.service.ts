@@ -7,6 +7,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Exam, ExamAccessType, ExamDocument } from './models/exam.model';
+import { ParsedQuestion } from './interfaces/exam.interface';
 import { CreateExamDto } from './dto/create-exam.dto';
 import { Invite } from './dto/invite-students.dto';
 import { User, UserDocument } from '../users/models/user.model';
@@ -350,7 +351,18 @@ export class ExamService {
         mode: 'student',
       });
 
-      const shuffled = [...exam.question_text];
+      const questions: ParsedQuestion[] = exam.question_text.map((q) => {
+        if (typeof q === 'string') {
+          try {
+            return JSON.parse(q) as ParsedQuestion;
+          } catch {
+            return { type: 'theory', question: q } as ParsedQuestion;
+          }
+        }
+        return q;
+      });
+
+      const shuffled = [...questions];
       for (let i = shuffled.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];

@@ -1,6 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
-import { Submissions } from '../interfaces/exam.interface';
+import { Submissions, ParsedQuestion } from '../interfaces/exam.interface';
 import { ConfigService } from '@nestjs/config';
 
 export enum ExamAccessType {
@@ -78,8 +78,8 @@ export class Exam {
   @Prop({ required: false })
   submissions: Array<Submissions>;
 
-  @Prop({ type: [String], default: [] })
-  question_text: string[];
+  @Prop({ type: [Object], default: [] })
+  question_text: ParsedQuestion[];
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   lecturer: Types.ObjectId;
