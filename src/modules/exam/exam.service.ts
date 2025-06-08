@@ -12,7 +12,6 @@ import { CreateExamDto } from './dto/create-exam.dto';
 import { Invite } from './dto/invite-students.dto';
 import { User, UserDocument } from '../users/models/user.model';
 import { JwtService } from '@nestjs/jwt';
-import { Express } from 'express';
 import {
   returnEmails,
   returnNames,
