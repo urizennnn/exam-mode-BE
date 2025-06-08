@@ -12,6 +12,7 @@ import { CreateExamDto } from './dto/create-exam.dto';
 import { Invite } from './dto/invite-students.dto';
 import { User, UserDocument } from '../users/models/user.model';
 import { JwtService } from '@nestjs/jwt';
+import { Express } from 'express';
 import {
   returnEmails,
   returnNames,
@@ -21,6 +22,8 @@ import {
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { EXAM_SCHEDULER_QUEUE } from 'src/utils/constants';
+import { ProcessService } from '../process/process.service';
+import { writeFile } from 'node:fs/promises';
 
 @Injectable()
 export class ExamService {
@@ -38,9 +41,10 @@ export class ExamService {
     @InjectModel(Exam.name) private readonly examModel: Model<ExamDocument>,
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
     private readonly jwtService: JwtService,
+    private readonly processService: ProcessService,
   ) {}
 
-  async createExam(dto: CreateExamDto) {
+  async createExam(dto: CreateExamDto, file?: Express.Multer.File) {
     try {
       this.logger.log(
         `Attempting to create/update exam with key="${dto.examKey}"`,
@@ -55,6 +59,16 @@ export class ExamService {
           lecturer: new Types.ObjectId(dto.lecturer),
         });
         await existingExam.save();
+
+        if (file) {
+          const tmpPath = `/tmp/${Date.now()}-${file.originalname}`;
+          await writeFile(tmpPath, file.buffer);
+          await this.processService.parsePdfWorker({
+            tmpPath,
+            examKey: dto.examKey,
+          });
+        }
+
         this.logger.log(`Exam "${dto.examKey}" updated successfully`);
         return { message: 'Exam updated successfully' };
       }
@@ -64,6 +78,16 @@ export class ExamService {
         lecturer: new Types.ObjectId(dto.lecturer),
       });
       await newExam.save();
+
+      if (file) {
+        const tmpPath = `/tmp/${Date.now()}-${file.originalname}`;
+        await writeFile(tmpPath, file.buffer);
+        await this.processService.parsePdfWorker({
+          tmpPath,
+          examKey: dto.examKey,
+        });
+      }
+
       this.logger.log(
         `Exam "${dto.examKey}" created successfully with id="${newExam._id.toString()}"`,
       );

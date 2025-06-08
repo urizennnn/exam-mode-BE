@@ -26,7 +26,21 @@ export const ExamControllerSwagger = {
 
   createExam: applyDecorators(
     ApiOperation({ summary: 'Create a new exam' }),
-    ApiBody({ type: CreateExamDto }),
+    ApiConsumes('multipart/form-data'),
+    ApiBody({
+      schema: {
+        type: 'object',
+        properties: {
+          dto: { $ref: getSchemaPath(CreateExamDto) },
+          file: {
+            type: 'string',
+            format: 'binary',
+            description: 'PDF file containing exam questions',
+          },
+        },
+        required: ['dto'],
+      },
+    }),
     ApiResponse({ status: 201, description: 'Created exam object' }),
   ),
 

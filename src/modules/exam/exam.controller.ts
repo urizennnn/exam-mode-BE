@@ -11,7 +11,7 @@ import {
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
-import { Request } from 'express';
+import { Request, Express } from 'express';
 import { ExamService } from './exam.service';
 import { CreateExamDto } from './dto/create-exam.dto';
 import { NeedsAuth } from 'src/common';
@@ -33,10 +33,15 @@ export class ExamController {
   @docs.createExam
   @NeedsAuth()
   @Post()
-  async createExam(@Body() dto: CreateExamDto, @Req() req: Request) {
+  @UseInterceptors(FileInterceptor('file'))
+  async createExam(
+    @Body() dto: CreateExamDto,
+    @Req() req: Request,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
     const user = req.user!.id;
     dto.lecturer = user as unknown as string;
-    return this.examService.createExam(dto);
+    return this.examService.createExam(dto, file);
   }
 
   @docs.getExam
