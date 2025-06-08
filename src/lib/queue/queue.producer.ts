@@ -39,6 +39,7 @@ export class PdfQueueProducer {
         delay: 1000,
       },
       jobId: randomUUID(),
+      removeOnComplete: { age: 1 },
       removeOnFail: true,
     });
   }
