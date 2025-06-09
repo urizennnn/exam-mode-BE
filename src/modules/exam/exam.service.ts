@@ -21,13 +21,13 @@ import {
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { EXAM_SCHEDULER_QUEUE } from 'src/utils/constants';
-import { ProcessService } from '../process/ProcessService';
 import { writeFile } from 'node:fs/promises';
 import { AppEvents } from 'src/lib/events/events.service';
 import {
   STUDENT_IN_EVENT,
   STUDENT_OUT_EVENT,
 } from 'src/lib/events/events.constants';
+import { ProcessService } from '../process/process.service';
 
 @Injectable()
 export class ExamService {

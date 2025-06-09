@@ -9,7 +9,6 @@ import {
   ParseJobData,
   EXAM_SCHEDULER_QUEUE,
 } from 'src/utils/constants';
-import { ProcessService } from 'src/modules/process/ProcessService';
 import {
   Exam,
   ExamAccessType,
@@ -17,6 +16,7 @@ import {
 } from 'src/modules/exam/models/exam.model';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { ProcessService } from 'src/modules/process/process.service';
 
 @Processor(PDF_QUEUE)
 @Injectable()

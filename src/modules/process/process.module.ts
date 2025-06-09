@@ -5,9 +5,11 @@ import { Exam, ExamSchema } from '../exam/models/exam.model';
 import { QueueModule } from 'src/lib/queue/queue.module';
 import { AwsService } from 'src/lib/aws/aws.service';
 import { ProcessService } from './process.service';
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
   imports: [
+    ConfigModule,
     MongooseModule.forFeature([
       {
         name: Exam.name,

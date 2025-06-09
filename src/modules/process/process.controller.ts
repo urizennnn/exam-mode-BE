@@ -8,9 +8,9 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ProcessService } from './ProcessService';
 import { ProcessControllerSwagger as Docs } from './docs/swagger';
 import { Express } from 'express';
+import { ProcessService } from './process.service';
 
 @Docs.controller
 @Controller('process')
