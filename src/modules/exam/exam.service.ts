@@ -21,7 +21,7 @@ import {
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { EXAM_SCHEDULER_QUEUE } from 'src/utils/constants';
-import { ProcessService } from '../process/process.service';
+import { ProcessService } from '../process/ProcessService';
 import { writeFile } from 'node:fs/promises';
 import { AppEvents } from 'src/lib/events/events.service';
 import {

@@ -20,6 +20,7 @@ import { PDF_QUEUE, ParseJobData, MarkJobData } from 'src/utils/constants';
 import { Exam, ExamDocument } from '../exam/models/exam.model';
 import { PdfQueueProducer } from 'src/lib/queue/queue.producer';
 import { Submissions, ParsedQuestion } from '../exam/interfaces/exam.interface';
+import { AwsService } from 'src/lib/aws/aws.service';
 
 interface JobInfo {
   id: string;
@@ -100,7 +101,7 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
     private readonly producer: PdfQueueProducer,
     @InjectQueue(PDF_QUEUE)
     private readonly queue: Queue<ParseJobData | MarkJobData, string>,
-    private readonly cloudinary: CloudinaryService,
+    private readonly aws: AwsService,
   ) {}
 
   async enqueueProcessPdf(file: Express.Multer.File, examKey: string) {
@@ -333,8 +334,10 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
         buffer: Buffer.from(pdfBytes),
         originalname: `transcript-${examKey}-${email}.pdf`,
       } as Express.Multer.File;
-      const { secure_url: transcriptUrl } =
-        await this.cloudinary.uploadImage(uploadFile);
+      const { secure_url: transcriptUrl } = await this.aws.uploadFile(
+        uploadFile.originalname,
+        uploadFile.buffer,
+      );
 
       const submission: Submissions = {
         email: email.toLowerCase(),

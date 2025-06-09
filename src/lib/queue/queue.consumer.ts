@@ -9,7 +9,7 @@ import {
   ParseJobData,
   EXAM_SCHEDULER_QUEUE,
 } from 'src/utils/constants';
-import { ProcessService } from 'src/modules/process/process.service';
+import { ProcessService } from 'src/modules/process/ProcessService';
 import {
   Exam,
   ExamAccessType,

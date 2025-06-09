@@ -11,6 +11,7 @@ import { QueueModule } from './lib/queue/queue.module';
 import { EventsModule } from './lib/events/events.module';
 import 'dotenv/config';
 import { CloudinaryModule } from './lib/cloudinary/cloudinary.module';
+import { AwsModule } from './lib/aws/aws.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { CloudinaryModule } from './lib/cloudinary/cloudinary.module';
     QueueModule,
     CloudinaryModule,
     EventsModule,
+    AwsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
