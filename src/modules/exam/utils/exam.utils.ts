@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { SendgridService } from 'src/modules/email/email.service';
+import { MailService } from 'src/modules/email/email.service';
 
 const cfg = new ConfigService();
 
@@ -10,7 +10,7 @@ export async function sendInvite(
   examLink: string,
   startDate: string,
 ) {
-  const sg = new SendgridService(cfg);
+  const sg = new MailService(cfg);
 
   await Promise.all(
     recipients.map(({ email, name }) =>
@@ -35,7 +35,7 @@ export async function sendTranscript(
   transcriptLink: string,
   examName: string,
 ) {
-  const sg = new SendgridService(cfg);
+  const sg = new MailService(cfg);
   await sg.send({
     to: email,
     subject: `Your transcript for ${examName}`,
