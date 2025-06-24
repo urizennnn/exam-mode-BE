@@ -1,7 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 import { ConfigService } from '@nestjs/config';
-import { MailService } from 'src/modules/email/email.service';
 import { Submissions } from '../interfaces/exam.interface';
 
 const cfg = new ConfigService();
@@ -76,22 +75,11 @@ export class Exam {
 export type ExamDocument = HydratedDocument<Exam>;
 export const ExamSchema = SchemaFactory.createForClass(Exam);
 
-ExamSchema.pre<ExamDocument>('save', async function (next) {
+ExamSchema.pre<ExamDocument>('save', function (next) {
   if (this.isModified('invites')) {
     this.invites = this.invites.map((invite) => invite.toLowerCase());
-    const sg = new MailService(new ConfigService());
     const URL: string = cfg.getOrThrow('URL');
-    const link =
-      this.link || `${URL}/student/${this.id as string}?mode=student`;
-    await Promise.all(
-      this.invites.map((to) =>
-        sg.send({
-          to,
-          subject: `Invitation to take exam: ${this.examName}`,
-          html: `<p>You have been invited to take the exam <strong>${this.examName}</strong>.</p><p>Please click on this link: <strong>${link}</strong></p>`,
-        }),
-      ),
-    );
+    const link = this.link || `${URL}/student-login`;
     this.link = link;
   }
   if (this.isModified('submissions')) {

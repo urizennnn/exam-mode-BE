@@ -133,9 +133,7 @@ export class ExamService {
       name: names[idx] || 'Student',
     }));
 
-    const link =
-      exam.link ||
-      `${new ConfigService().get('URL')}/student/${exam.id}?mode=student`;
+    const link = exam.link || `${new ConfigService().get('URL')}/student-login`;
     await sendInvite(
       recipients,
       exam.examName,
@@ -241,7 +239,7 @@ export class ExamService {
     }
 
     return {
-      id:exam._id,
+      id: exam._id,
       examName: exam.examName,
       examKey: exam.examKey,
       questions,
