@@ -225,7 +225,6 @@ export class ExamService {
       `Student login attempt with key: ${examKey} and email: ${email}`,
     );
     const exam = await this.examModel.findOne({ examKey });
-    this.logger.debug(exam);
     if (!exam) throw new NotFoundException('Exam not found');
 
     if (
@@ -242,6 +241,7 @@ export class ExamService {
     }
 
     return {
+      id:exam._id,
       examName: exam.examName,
       examKey: exam.examKey,
       questions,
