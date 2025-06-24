@@ -1,15 +1,21 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
+import { Submissions, ParsedQuestion } from '../interfaces/exam.interface';
 import { ConfigService } from '@nestjs/config';
-import { Submissions } from '../interfaces/exam.interface';
-
-const cfg = new ConfigService();
 
 export enum ExamAccessType {
   OPEN = 'open',
-  PRIVATE = 'private',
-  RESTRICTED = 'restricted',
+  CLOSED = 'closed',
   SCHEDULED = 'scheduled',
+}
+
+@Schema({ _id: false })
+class InviteSchema {
+  @Prop({ required: true })
+  email: string;
+
+  @Prop({ required: true })
+  name: string;
 }
 
 @Schema({ _id: false })
@@ -47,11 +53,25 @@ export class Exam {
   @Prop({ required: true, unique: true })
   examKey: string;
 
-  @Prop({ type: String, enum: ExamAccessType, required: true })
+  @Prop({ required: false, type: Date })
+  startDate: Date;
+
+  @Prop({ required: false, type: Date })
+  endDate: Date | string;
+
+  @Prop({
+    type: String,
+    enum: ExamAccessType,
+    required: true,
+    default: ExamAccessType.OPEN,
+  })
   access: ExamAccessType;
 
-  @Prop({ required: false, type: [String] })
-  invites: string[];
+  @Prop({ required: false, type: [InviteSchema], default: [] })
+  invites: Array<InviteSchema>;
+
+  @Prop({ required: false, type: Number, default: 0 })
+  ongoing: number;
 
   @Prop({ required: false })
   link: string;
@@ -59,8 +79,8 @@ export class Exam {
   @Prop({ required: false })
   submissions: Array<Submissions>;
 
-  @Prop({ type: [String], default: [] })
-  question_text: string[];
+  @Prop({ type: [Object], default: [] })
+  question_text: ParsedQuestion[];
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   lecturer: Types.ObjectId;
@@ -77,18 +97,29 @@ export const ExamSchema = SchemaFactory.createForClass(Exam);
 
 ExamSchema.pre<ExamDocument>('save', function (next) {
   if (this.isModified('invites')) {
-    this.invites = this.invites.map((invite) => invite.toLowerCase());
-    const URL: string = cfg.getOrThrow('URL');
-    const link = this.link || `${URL}/student-login`;
-    this.link = link;
+    const cfg = new ConfigService();
+    const URL = cfg.getOrThrow<string>('URL');
+    this.link = `${URL}/student-login`;
   }
+
   if (this.isModified('submissions')) {
-    this.submissions.forEach((submission) => {
-      submission.email = submission.email.toLowerCase();
-      if (!this.invites.includes(submission.email)) {
-        this.submissions.pop();
-      }
-    });
+    const inviteEmails = this.invites.map((inv) => inv.email.toLowerCase());
+    this.submissions = this.submissions
+      .map((submission) => ({
+        ...submission,
+        email: submission.email.toLowerCase(),
+      }))
+      .filter((submission) => inviteEmails.includes(submission.email));
   }
+  if (this.isModified('access')) {
+    if (this.access == ExamAccessType.CLOSED) {
+      this.endDate = new Date();
+    }
+    if (this.access == ExamAccessType.OPEN) {
+      this.startDate = new Date();
+      this.endDate = '' as any;
+    }
+  }
+
   next();
 });

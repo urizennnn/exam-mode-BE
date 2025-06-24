@@ -8,7 +8,6 @@ import { InjectModel } from '@nestjs/mongoose';
 import { isValidObjectId, Model, Types } from 'mongoose';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { Express } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { Exam, ExamDocument, ExamAccessType } from './models/exam.model';
 import { CreateExamDto } from './dto/create-exam.dto';
@@ -99,7 +98,7 @@ export class ExamService {
   async dropEmailFromInvite(email: string, key: string) {
     await this.examModel.updateOne(
       { examKey: key },
-      { $pull: { invites: email.toLowerCase() } },
+      { $pull: { invites: { email: email.toLowerCase() } } },
     );
     return { message: 'Email removed' };
   }
@@ -125,15 +124,26 @@ export class ExamService {
     if (dto.names) names.push(...dto.names);
 
     emails = emails.map((e) => e.toLowerCase());
-    exam.invites = Array.from(new Set([...(exam.invites ?? []), ...emails]));
-    await exam.save();
-
-    const recipients = emails.map((email, idx) => ({
+    const newInvites = emails.map((email, idx) => ({
       email,
       name: names[idx] || 'Student',
     }));
 
-    const link = exam.link || `${new ConfigService().get('URL')}/student-login`;
+    newInvites.forEach((inv) => {
+      const existing = exam.invites.find((i) => i.email === inv.email);
+      if (existing) {
+        existing.name = inv.name;
+      } else {
+        exam.invites.push(inv);
+      }
+    });
+    await exam.save();
+
+    const recipients = newInvites;
+
+    const link =
+      exam.link ||
+      `${new ConfigService().get('URL')}/student/${exam.id}?mode=student`;
     await sendInvite(
       recipients,
       exam.examName,
@@ -227,7 +237,7 @@ export class ExamService {
 
     if (
       exam.access !== ExamAccessType.OPEN &&
-      !exam.invites.includes(email.toLowerCase())
+      !exam.invites.some((i) => i.email.toLowerCase() === email.toLowerCase())
     ) {
       throw new BadRequestException('Student not invited for this exam');
     }
