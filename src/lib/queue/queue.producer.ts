@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import {
@@ -9,13 +9,13 @@ import {
 } from 'src/utils/constants';
 import { randomUUID } from 'node:crypto';
 
-const ONE_HOUR = 60 * 60;
-
 @Injectable()
 export class PdfQueueProducer {
+  private readonly log = new Logger(PdfQueueProducer.name);
   constructor(@InjectQueue(PDF_QUEUE) private readonly queue: Queue) {}
 
   enqueueProcess(data: ParseJobData) {
+    this.log.verbose(`Queueing parse job for ${data.examKey || data.tmpPath}`);
     return this.queue.add(PdfJobs.PROCESS, data, {
       attempts: 3,
       backoff: {
@@ -23,12 +23,12 @@ export class PdfQueueProducer {
         delay: 1000,
       },
       jobId: randomUUID(),
-      removeOnComplete: { age: ONE_HOUR },
       removeOnFail: true,
     });
   }
 
   enqueueMark(data: MarkJobData) {
+    this.log.verbose(`Queueing mark job for ${data.examKey} – ${data.email}`);
     return this.queue.add(PdfJobs.MARK, data, {
       attempts: 3,
       backoff: {

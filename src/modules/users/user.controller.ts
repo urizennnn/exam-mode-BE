@@ -8,6 +8,7 @@ import {
 import { UserService } from './user.service';
 import { CreateUserDto, LoginUserDto } from './dto/user.dto';
 import { Request } from 'express';
+import { NeedsAuth } from 'src/common';
 
 @Controller('users')
 export class UserController {
@@ -22,7 +23,7 @@ export class UserController {
   async login(@Body() dto: LoginUserDto) {
     return this.userService.login(dto);
   }
-
+  @NeedsAuth()
   @Post('logout')
   async logout(@Req() req: Request) {
     const lectureId = req.user?.id;

@@ -8,7 +8,10 @@ import { ExamModule } from './modules/exam/exam.module';
 import { JwtModule } from '@nestjs/jwt';
 import { MongooseModule } from '@nestjs/mongoose';
 import { QueueModule } from './lib/queue/queue.module';
+import { EventsModule } from './lib/events/events.module';
 import 'dotenv/config';
+import { CloudinaryModule } from './lib/cloudinary/cloudinary.module';
+import { AwsModule } from './lib/aws/aws.module';
 
 @Module({
   imports: [
@@ -29,6 +32,9 @@ import 'dotenv/config';
     UserModule,
     ExamModule,
     QueueModule,
+    CloudinaryModule,
+    EventsModule,
+    AwsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

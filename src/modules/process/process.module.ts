@@ -1,12 +1,15 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { ProcessController } from './process.controller';
-import { ProcessService } from './process.service';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Exam, ExamSchema } from '../exam/models/exam.model';
 import { QueueModule } from 'src/lib/queue/queue.module';
+import { AwsService } from 'src/lib/aws/aws.service';
+import { ProcessService } from './process.service';
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
   imports: [
+    ConfigModule,
     MongooseModule.forFeature([
       {
         name: Exam.name,
@@ -16,7 +19,7 @@ import { QueueModule } from 'src/lib/queue/queue.module';
     forwardRef(() => QueueModule),
   ],
   controllers: [ProcessController],
-  providers: [ProcessService],
+  providers: [ProcessService, AwsService],
   exports: [ProcessService],
 })
 export class ProcessModule {}

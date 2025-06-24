@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as sg from '@sendgrid/mail';
+import nodemailer, { Transporter } from 'nodemailer';
 
-interface SendgridSendOptions {
+interface MailSendOptions {
   to: string | string[];
   subject: string;
   text?: string;
@@ -10,46 +10,42 @@ interface SendgridSendOptions {
   from?: string;
 }
 
-interface SendgridTemplateOptions {
-  to: string | string[];
-  templateId: string;
-  dynamicTemplateData: Record<string, unknown>;
-  from?: string;
-}
-
 @Injectable()
-export class SendgridService {
-  private readonly logger = new Logger(SendgridService.name);
+export class MailService {
+  private readonly logger = new Logger(MailService.name);
   private readonly defaultFrom: string;
+  private readonly transport: Transporter;
 
-  constructor(private readonly config: ConfigService) {
-    const apiKey = this.config.getOrThrow<string>('SENDGRID_API_KEY');
-    this.defaultFrom =
-      this.config.get<string>('SENDGRID_FROM') ?? 'no-reply@example.com';
-    sg.setApiKey(apiKey);
+  private buildTransport(): Transporter {
+    return nodemailer.createTransport({
+      host: process.env.ZOHO_SMTP_HOST,
+      port: Number(process.env.ZOHO_SMTP_PORT) || 465,
+      secure: true,
+      auth: {
+        user: process.env.ZOHO_USERNAME,
+        pass: process.env.ZOHO_APP_PASS,
+      },
+    });
   }
 
-  async send(options: SendgridSendOptions) {
+  constructor(private readonly cfg: ConfigService) {
+    this.transport = this.buildTransport();
+    this.defaultFrom =
+      this.cfg.get<string>('ZOHO_FROM') ?? 'no-reply@example.com';
+  }
+
+  async send(options: MailSendOptions) {
     try {
-      await sg.send({
+      await this.transport.sendMail({
         from: options.from ?? this.defaultFrom,
         to: options.to,
         subject: options.subject,
         text: options.text,
         html: options.html,
       });
-    } catch (error) {
-      this.logger.error(`Error sending email: ${error}`);
-      throw error;
+    } catch (err) {
+      this.logger.error(`Error sending mail: ${err}`);
+      throw err;
     }
-  }
-
-  async sendTemplate(options: SendgridTemplateOptions) {
-    await sg.send({
-      from: options.from ?? this.defaultFrom,
-      to: options.to,
-      templateId: options.templateId,
-      dynamicTemplateData: options.dynamicTemplateData,
-    });
   }
 }

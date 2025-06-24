@@ -20,6 +20,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.826.0",
     "@google/generative-ai": "^0.24.0",
     "@nestjs/bullmq": "^11.0.2",
     "@nestjs/common": "^11.0.1",
@@ -30,22 +31,24 @@
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/platform-socket.io": "^11.0.11",
+    "@nestjs/schedule": "^6.0.0",
     "@nestjs/swagger": "^11.1.5",
-    "@sendgrid/mail": "^8.1.5",
     "@types/express-fileupload": "^1.5.1",
     "@types/pdf-parse": "^1.1.4",
     "argon2": "^0.43.0",
     "bullmq": "^5.52.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "cloudinary": "^2.6.1",
     "dotenv": "^16.4.7",
     "express-fileupload": "^1.5.1",
     "ioredis": "^5.6.1",
     "mongoose": "^8.14.0",
     "multer": "^1.4.5-lts.1",
-    "nodemailer": "^7.0.0",
+    "nodemailer": "^7.0.3",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
+    "pdf-lib": "^1.17.1",
     "pdf-parse": "^1.1.1",
     "pdfkit": "^0.16.0",
     "reflect-metadata": "^0.2.2",
@@ -63,6 +66,7 @@
     "@types/jest": "^29.5.14",
     "@types/multer": "^1.4.12",
     "@types/node": "^22.15.2",
+    "@types/nodemailer": "^6.4.17",
     "@types/passport": "^1.0.17",
     "@types/passport-jwt": "^4.0.1",
     "@types/pdfkit": "^0.13.9",
@@ -98,5 +102,6 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
-  }
+  },
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

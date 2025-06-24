@@ -1,4 +1,5 @@
 export const PDF_QUEUE = 'pdf-processing';
+export const EXAM_SCHEDULER_QUEUE = 'exam-scheduler';
 
 export enum PdfJobs {
   PROCESS = 'process-pdf',
@@ -14,4 +15,5 @@ export interface MarkJobData extends ParseJobData {
   examKey: string;
   email: string;
   studentAnswer: string;
+  timeSpent: number;
 }

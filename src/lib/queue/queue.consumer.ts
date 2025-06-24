@@ -7,7 +7,15 @@ import {
   PdfJobs,
   MarkJobData,
   ParseJobData,
+  EXAM_SCHEDULER_QUEUE,
 } from 'src/utils/constants';
+import {
+  Exam,
+  ExamAccessType,
+  ExamDocument,
+} from 'src/modules/exam/models/exam.model';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import { ProcessService } from 'src/modules/process/process.service';
 
 @Processor(PDF_QUEUE)
@@ -18,7 +26,6 @@ export class PdfQueueConsumer extends WorkerHost {
   constructor(private readonly processSvc: ProcessService) {
     super();
   }
-
   async process(job: Job): Promise<unknown> {
     switch (job.name as PdfJobs) {
       case PdfJobs.PROCESS:
@@ -32,5 +39,18 @@ export class PdfQueueConsumer extends WorkerHost {
       default:
         throw new Error(`Unknown job name: ${job.name}`);
     }
+  }
+}
+@Processor(EXAM_SCHEDULER_QUEUE)
+export class ExamSchedulerProcessor {
+  constructor(
+    @InjectModel(Exam.name) private readonly examModel: Model<ExamDocument>,
+  ) {}
+
+  async handleOpenExam(job: Job<{ examId: string }>) {
+    await this.examModel.updateOne(
+      { _id: job.data.examId, access: ExamAccessType.SCHEDULED },
+      { $set: { access: ExamAccessType.OPEN } },
+    );
   }
 }
