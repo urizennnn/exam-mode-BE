@@ -99,7 +99,7 @@ export class ExamService {
   async dropEmailFromInvite(email: string, key: string) {
     await this.examModel.updateOne(
       { examKey: key },
-      { $pull: { invites: email.toLowerCase() } },
+      { $pull: { invites: { email: email.toLowerCase() } } },
     );
     return { message: 'Email removed' };
   }
@@ -125,13 +125,22 @@ export class ExamService {
     if (dto.names) names.push(...dto.names);
 
     emails = emails.map((e) => e.toLowerCase());
-    exam.invites = Array.from(new Set([...(exam.invites ?? []), ...emails]));
-    await exam.save();
-
-    const recipients = emails.map((email, idx) => ({
+    const newInvites = emails.map((email, idx) => ({
       email,
       name: names[idx] || 'Student',
     }));
+
+    newInvites.forEach((inv) => {
+      const existing = exam.invites.find((i) => i.email === inv.email);
+      if (existing) {
+        existing.name = inv.name;
+      } else {
+        exam.invites.push(inv);
+      }
+    });
+    await exam.save();
+
+    const recipients = newInvites;
 
     const link =
       exam.link ||
@@ -229,7 +238,7 @@ export class ExamService {
 
     if (
       exam.access !== ExamAccessType.OPEN &&
-      !exam.invites.includes(email.toLowerCase())
+      !exam.invites.some((i) => i.email.toLowerCase() === email.toLowerCase())
     ) {
       throw new BadRequestException('Student not invited for this exam');
     }
@@ -241,7 +250,7 @@ export class ExamService {
     }
 
     return {
-      id:exam._id,
+      id: exam._id,
       examName: exam.examName,
       examKey: exam.examKey,
       questions,
