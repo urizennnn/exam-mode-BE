@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import nodemailer, { Transporter } from 'nodemailer';
+import { SendMailClient } from 'zeptomail';
 
 interface MailSendOptions {
   to: string | string[];
@@ -14,38 +14,47 @@ interface MailSendOptions {
 export class MailService {
   private readonly logger = new Logger(MailService.name);
   private readonly defaultFrom: string;
-  private readonly transport: Transporter;
-
-  private buildTransport(): Transporter {
-    return nodemailer.createTransport({
-      host: this.cfg.get<string>('ZOHO_SMTP_HOST'),
-      port: this.cfg.get<number>('ZOHO_SMTP_PORT') ?? 465,
-      secure: true,
-      auth: {
-        user: this.cfg.get<string>('ZOHO_USERNAME'),
-        pass: this.cfg.get<string>('ZOHO_APP_PASS'),
-      },
-    });
-  }
+  private readonly client: SendMailClient;
 
   constructor(private readonly cfg: ConfigService) {
-    this.transport = this.buildTransport();
+    const url = this.cfg.get<string>('ZEPTO_URL') ?? 'api.zeptomail.com/';
+    const token = this.cfg.get<string>('ZEPTO_TOKEN') ?? '';
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
+    this.client = new SendMailClient({
+      url,
+      token,
+    }) as unknown as SendMailClient;
     this.defaultFrom =
-      this.cfg.get<string>('ZOHO_FROM') ?? 'no-reply@example.com';
+      this.cfg.get<string>('ZEPTO_FROM') ?? 'no-reply@example.com';
   }
 
   async send(options: MailSendOptions) {
     try {
-      await this.transport.sendMail({
-        from: options.from ?? this.defaultFrom,
-        to: options.to,
+      const to = Array.isArray(options.to) ? options.to : [options.to];
+
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
+      const response = await (this.client as unknown as any).sendMail({
+        from: {
+          address: options.from ?? this.defaultFrom,
+          name: options.from ?? this.defaultFrom,
+        },
+        to: to.map((address) => ({
+          email_address: {
+            address,
+            name: address,
+          },
+        })),
         subject: options.subject,
-        text: options.text,
-        html: options.html,
+        textbody: options.text ?? '',
+        htmlbody: options.html,
       });
-    } catch (err) {
-      this.logger.error(`Error sending mail: ${err}`);
-      throw err;
+      this.logger.debug(`Email sent: ${JSON.stringify(response)}`);
+    } catch (err: unknown) {
+      this.logger.error(`Error sending mail: ${err as string}`);
+      if (err instanceof Error) {
+        throw err;
+      }
+      throw new Error('Failed to send mail');
     }
   }
 }

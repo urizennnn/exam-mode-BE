@@ -60,13 +60,11 @@ $ yarn run test:cov
 
 ## Email configuration
 
-Emails are sent via Zoho's SMTP service using Nodemailer. Configure these environment variables:
+Emails are sent using Zoho's ZeptoMail API. Configure these environment variables:
 
-- `ZOHO_SMTP_HOST` – Zoho SMTP host (e.g. `smtp.zoho.com`)
-- `ZOHO_SMTP_PORT` – SMTP port, typically `465`
-- `ZOHO_USERNAME` – your Zoho account username
-- `ZOHO_APP_PASS` – an app-specific password
-- `ZOHO_FROM` – default sender address
+- `ZEPTO_URL` – ZeptoMail API base URL (e.g. `api.zeptomail.com/`)
+- `ZEPTO_TOKEN` – your ZeptoMail send mail token
+- `ZEPTO_FROM` – default sender address
 
 ## Deployment
 
