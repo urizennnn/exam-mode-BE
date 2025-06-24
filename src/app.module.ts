@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ProcessModule } from './modules/process/process.module';
@@ -12,6 +12,7 @@ import { EventsModule } from './lib/events/events.module';
 import 'dotenv/config';
 import { CloudinaryModule } from './lib/cloudinary/cloudinary.module';
 import { AwsModule } from './lib/aws/aws.module';
+import { RequestLoggerMiddleware } from './common';
 
 @Module({
   imports: [
@@ -39,4 +40,8 @@ import { AwsModule } from './lib/aws/aws.module';
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(RequestLoggerMiddleware).forRoutes('*');
+  }
+}
