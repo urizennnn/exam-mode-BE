@@ -140,7 +140,10 @@ export class ExamService {
     return { message: 'Invites sent' };
   }
 
-  async updateSubmission(id: string, dto: { email: string; transcript: string }) {
+  async updateSubmission(
+    id: string,
+    dto: { email: string; transcript: string },
+  ) {
     const exam = await this.examModel.findById(id).exec();
     if (!exam) throw new NotFoundException('Exam not found');
     const email = dto.email.toLowerCase();
@@ -161,19 +164,32 @@ export class ExamService {
     return { message: 'Submission updated' };
   }
 
-  async studentLogout(_key: string, _email: string) {
-    return { message: 'Logged out' };
+  async studentLogout(key: string, email: string) {
+    const exam = await this.examModel.findOne({ examKey: key }).exec();
+    if (!exam) throw new NotFoundException('Exam not found');
+    return { message: 'Logout successful' };
   }
 
-  // FIX: replace with actual PDF upload and email sending logic
   async sendExamBack(id: string, email: string | string[]) {
-    // In real implementation we would upload PDF and email link
-    await sendTranscript(
-      Array.isArray(email) ? email[0] : email,
-      'transcript-link',
-      'Exam',
-    );
-    return { message: 'Transcript sent' };
+    const exam = await this.examModel.findById(id).exec();
+    if (!exam) throw new NotFoundException('Exam not found');
+
+    const emails = Array.isArray(email) ? email : [email];
+    for (const addr of emails) {
+      const lowered = addr.toLowerCase();
+      const submission = exam.submissions.find((s) => s.email === lowered);
+      if (!submission)
+        throw new BadRequestException(`No submission for email ${addr}`);
+      if (!submission.transcript)
+        throw new BadRequestException(
+          `Transcript not yet generated for ${addr}`,
+        );
+      await sendTranscript(addr, submission.transcript, exam.examName);
+    }
+
+    return {
+      message: `Transcript sent to ${emails.length} student${emails.length > 1 ? 's' : ''} successfully`,
+    };
   }
 
   async duplicateExam(id: string, examKey: string) {
