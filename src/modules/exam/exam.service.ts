@@ -165,6 +165,7 @@ export class ExamService {
     return { message: 'Logged out' };
   }
 
+  // FIX: replace with actual PDF upload and email sending logic
   async sendExamBack(id: string, email: string | string[]) {
     // In real implementation we would upload PDF and email link
     await sendTranscript(
