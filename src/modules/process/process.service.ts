@@ -15,7 +15,6 @@ import { Model } from 'mongoose';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue, Job } from 'bullmq';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
-import { CloudinaryService } from 'src/lib/cloudinary/cloudinary.service';
 import { PDF_QUEUE, ParseJobData, MarkJobData } from 'src/utils/constants';
 import { Exam, ExamDocument } from '../exam/models/exam.model';
 import { PdfQueueProducer } from 'src/lib/queue/queue.producer';

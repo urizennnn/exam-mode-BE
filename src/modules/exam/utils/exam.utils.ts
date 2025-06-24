@@ -10,11 +10,11 @@ export async function sendInvite(
   examLink: string,
   startDate: string,
 ) {
-  const sg = new MailService(cfg);
+  const mailer = new MailService(cfg);
 
   await Promise.all(
     recipients.map(({ email, name }) =>
-      sg.send({
+      mailer.send({
         to: email,
         subject: `Invitation to write ${examTitle}`,
         html: `<p>Dear ${name},</p>
@@ -35,8 +35,8 @@ export async function sendTranscript(
   transcriptLink: string,
   examName: string,
 ) {
-  const sg = new MailService(cfg);
-  await sg.send({
+  const mailer = new MailService(cfg);
+  await mailer.send({
     to: email,
     subject: `Your transcript for ${examName}`,
     html: `<p>Your transcript for <strong>${examName}</strong> is now available.</p>

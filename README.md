@@ -58,6 +58,16 @@ $ yarn run test:e2e
 $ yarn run test:cov
 ```
 
+## Email configuration
+
+Emails are sent via Zoho's SMTP service using Nodemailer. Configure these environment variables:
+
+- `ZOHO_SMTP_HOST` – Zoho SMTP host (e.g. `smtp.zoho.com`)
+- `ZOHO_SMTP_PORT` – SMTP port, typically `465`
+- `ZOHO_USERNAME` – your Zoho account username
+- `ZOHO_APP_PASS` – an app-specific password
+- `ZOHO_FROM` – default sender address
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
