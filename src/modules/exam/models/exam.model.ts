@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 import { ConfigService } from '@nestjs/config';
-import { SendgridService } from 'src/modules/email/email.service';
+import { MailService } from 'src/modules/email/email.service';
 import { Submissions } from '../interfaces/exam.interface';
 
 const cfg = new ConfigService();
@@ -10,6 +10,7 @@ export enum ExamAccessType {
   OPEN = 'open',
   PRIVATE = 'private',
   RESTRICTED = 'restricted',
+  SCHEDULED = 'scheduled',
 }
 
 @Schema({ _id: false })
@@ -78,7 +79,7 @@ export const ExamSchema = SchemaFactory.createForClass(Exam);
 ExamSchema.pre<ExamDocument>('save', async function (next) {
   if (this.isModified('invites')) {
     this.invites = this.invites.map((invite) => invite.toLowerCase());
-    const sg = new SendgridService(new ConfigService());
+    const sg = new MailService(new ConfigService());
     const URL: string = cfg.getOrThrow('URL');
     const link =
       this.link || `${URL}/student/${this.id as string}?mode=student`;

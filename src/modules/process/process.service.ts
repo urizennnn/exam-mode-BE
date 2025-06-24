@@ -99,6 +99,7 @@ Return ONLY the score as X/Y.`.trim();
       examKey,
       email,
       studentAnswer,
+      timeSpent: 0,
     });
     log.verbose(`Queued mark job ${job.id} for exam ${examKey} – ${email}`);
     return {
@@ -187,6 +188,8 @@ Return ONLY the score as X/Y.`.trim();
       email: email.toLowerCase(),
       studentAnswer,
       score: parseInt(scoreText.split('/')[0], 10),
+      timeSubmitted: new Date().toISOString(),
+      timeSpent: data.timeSpent ?? 0,
     };
     exam.submissions.push(submissions);
     await exam.save();
@@ -248,7 +251,7 @@ Return ONLY the score as X/Y.`.trim();
       .stroke();
 
     doc.end();
-    await new Promise((resolve) => stream.on('finish', resolve));
+    await new Promise<void>((resolve) => stream.on('finish', resolve));
     return filePath;
   }
 

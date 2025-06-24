@@ -5,9 +5,20 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { Express } from 'express';
+import { ConfigService } from '@nestjs/config';
 import { Exam, ExamDocument, ExamAccessType } from './models/exam.model';
 import { CreateExamDto } from './dto/create-exam.dto';
 import { Invite } from './dto/invite-students.dto';
+import {
+  sendInvite,
+  sendTranscript,
+  returnEmails,
+  returnNames,
+} from './utils/exam.utils';
+import { EXAM_SCHEDULER_QUEUE } from 'src/utils/constants';
 import { User, UserDocument } from '../users/models/user.model';
 
 @Injectable()
@@ -15,9 +26,16 @@ export class ExamService {
   constructor(
     @InjectModel(Exam.name) private readonly examModel: Model<ExamDocument>,
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
+    @InjectQueue(EXAM_SCHEDULER_QUEUE) private readonly scheduleQueue: Queue,
   ) {}
 
-  async createExam(dto: CreateExamDto) {
+  async searchExam(key: string) {
+    return this.examModel
+      .find({ examKey: { $regex: key, $options: 'i' } })
+      .exec();
+  }
+
+  async createExam(dto: CreateExamDto, _file?: Express.Multer.File) {
     const existingExam = await this.examModel
       .findOne({ examKey: dto.examKey })
       .exec();
@@ -67,31 +85,116 @@ export class ExamService {
     return { message: 'Exams deleted successfully' };
   }
 
-  async updateExam(examId: string, dto: Invite, lecturer: Types.ObjectId) {
-    const exam = await this.examModel.findById(examId).exec();
-    if (!exam) throw new NotFoundException('Exam not found');
-
-    const user = await this.userModel.findById(lecturer).exec();
-    if (!user) throw new NotFoundException('User not Found');
-
-    if (!exam.lecturer.equals(lecturer)) {
-      throw new BadRequestException(
-        'User does not have permission to send invitation',
-      );
-    }
-
-    dto.emails.forEach((email) => {
-      if (!email.includes('@')) {
-        throw new BadRequestException('Invalid email address');
-      }
-      if (exam.invites.includes(email.toLowerCase())) {
-        throw new BadRequestException('Email already invited');
-      }
-      email.toLowerCase();
-      exam.invites.push(email);
-    });
-    await exam.save();
+  async updateExam(examId: string, dto: Partial<Exam>) {
+    await this.examModel.updateOne({ _id: examId }, dto).exec();
     return { message: 'Exam updated successfully' };
+  }
+
+  async dropEmailFromInvite(email: string, key: string) {
+    await this.examModel.updateOne(
+      { examKey: key },
+      { $pull: { invites: email.toLowerCase() } },
+    );
+    return { message: 'Email removed' };
+  }
+
+  async sendInvites(
+    id: string,
+    dto: Invite,
+    lecturer: string | Types.ObjectId,
+    file?: Express.Multer.File,
+  ) {
+    const exam = await this.examModel.findById(id).exec();
+    if (!exam) throw new NotFoundException('Exam not found');
+    if (!exam.lecturer.equals(new Types.ObjectId(lecturer)))
+      throw new BadRequestException('User does not own this exam');
+
+    let emails: string[] = [];
+    let names: string[] = [];
+    if (file) {
+      emails = returnEmails(file);
+      names = returnNames(file);
+    }
+    if (dto.emails) emails.push(...dto.emails);
+    if (dto.names) names.push(...dto.names);
+
+    emails = emails.map((e) => e.toLowerCase());
+    exam.invites = Array.from(new Set([...(exam.invites ?? []), ...emails]));
+    await exam.save();
+
+    const recipients = emails.map((email, idx) => ({
+      email,
+      name: names[idx] || 'Student',
+    }));
+
+    const link =
+      exam.link ||
+      `${new ConfigService().get('URL')}/student/${exam.id}?mode=student`;
+    await sendInvite(
+      recipients,
+      exam.examName,
+      exam.examKey,
+      link,
+      new Date().toISOString(),
+    );
+    return { message: 'Invites sent' };
+  }
+
+  async updateSubmission(id: string, dto: { email: string; transcript: string }) {
+    const exam = await this.examModel.findById(id).exec();
+    if (!exam) throw new NotFoundException('Exam not found');
+    const email = dto.email.toLowerCase();
+    const submission = exam.submissions.find((s) => s.email === email);
+    if (submission) {
+      submission.transcript = dto.transcript;
+    } else {
+      exam.submissions.push({
+        email,
+        studentAnswer: '',
+        score: 0,
+        transcript: dto.transcript,
+        timeSubmitted: new Date().toISOString(),
+        timeSpent: 0,
+      });
+    }
+    await exam.save();
+    return { message: 'Submission updated' };
+  }
+
+  async studentLogout(_key: string, _email: string) {
+    return { message: 'Logged out' };
+  }
+
+  async sendExamBack(id: string, email: string | string[]) {
+    // In real implementation we would upload PDF and email link
+    await sendTranscript(
+      Array.isArray(email) ? email[0] : email,
+      'transcript-link',
+      'Exam',
+    );
+    return { message: 'Transcript sent' };
+  }
+
+  async duplicateExam(id: string, examKey: string) {
+    const exam = await this.examModel.findById(id).lean().exec();
+    if (!exam) throw new NotFoundException('Exam not found');
+    delete (exam as any)._id;
+    const dup = new this.examModel({ ...exam, examKey });
+    await dup.save();
+    return { message: 'Exam duplicated', examId: dup._id };
+  }
+
+  async scheduleExam(id: string, date: Date) {
+    const exam = await this.examModel.findById(id).exec();
+    if (!exam) throw new NotFoundException('Exam not found');
+    exam.access = ExamAccessType.SCHEDULED;
+    await exam.save();
+    await this.scheduleQueue.add(
+      'open-exam',
+      { examId: exam._id },
+      { delay: Math.max(date.getTime() - Date.now(), 0) },
+    );
+    return { message: 'Exam scheduled' };
   }
 
   async studentLogin(email: string, examKey: string) {

@@ -152,7 +152,7 @@ export class ExamController {
   }
 
   @Post('login')
-  async studentLogin(
+  async studentLoginLegacy(
     @Body('email') email: string,
     @Body('examKey') examKey: string,
   ) {

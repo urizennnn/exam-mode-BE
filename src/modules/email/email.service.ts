@@ -18,12 +18,12 @@ export class MailService {
 
   private buildTransport(): Transporter {
     return nodemailer.createTransport({
-      host: process.env.ZOHO_SMTP_HOST,
-      port: Number(process.env.ZOHO_SMTP_PORT) || 465,
+      host: this.cfg.get<string>('ZOHO_SMTP_HOST'),
+      port: this.cfg.get<number>('ZOHO_SMTP_PORT') ?? 465,
       secure: true,
       auth: {
-        user: process.env.ZOHO_USERNAME,
-        pass: process.env.ZOHO_APP_PASS,
+        user: this.cfg.get<string>('ZOHO_USERNAME'),
+        pass: this.cfg.get<string>('ZOHO_APP_PASS'),
       },
     });
   }
