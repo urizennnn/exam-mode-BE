@@ -47,7 +47,7 @@ export class ExamController {
   @docs.getExam
   @Get(':id')
   async getExam(@Param('id') id: string) {
-    return this.examService.getExamById(id);
+    return this.examService.getExamByIdorKey(id);
   }
 
   @docs.dropEmailFromInvite
@@ -149,13 +149,5 @@ export class ExamController {
     @Body() dto: { startAt: string },
   ) {
     return this.examService.scheduleExam(id, new Date(dto.startAt));
-  }
-
-  @Post('login')
-  async studentLoginLegacy(
-    @Body('email') email: string,
-    @Body('examKey') examKey: string,
-  ) {
-    return this.examService.studentLogin(email, examKey);
   }
 }

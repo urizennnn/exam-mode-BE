@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -23,6 +24,7 @@ import { User, UserDocument } from '../users/models/user.model';
 
 @Injectable()
 export class ExamService {
+  private readonly logger = new Logger(ExamService.name);
   constructor(
     @InjectModel(Exam.name) private readonly examModel: Model<ExamDocument>,
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
@@ -54,8 +56,10 @@ export class ExamService {
     await newExam.save();
     return { message: 'Exam created successfully' };
   }
-  async getExamById(examId: string) {
-    const exam = await this.examModel.findById(examId).exec();
+  async getExamByIdorKey(examId: string) {
+    const exam =
+      (await this.examModel.findOne({ examKey: examId }).exec()) ||
+      (await this.examModel.findById(examId).exec());
     if (!exam) {
       throw new NotFoundException('Exam not found');
     }
@@ -215,7 +219,11 @@ export class ExamService {
   }
 
   async studentLogin(email: string, examKey: string) {
-    const exam = await this.examModel.findOne({ examKey }).exec();
+    this.logger.log(
+      `Student login attempt with key: ${examKey} and email: ${email}`,
+    );
+    const exam = await this.examModel.findOne({ examKey });
+    this.logger.debug(exam);
     if (!exam) throw new NotFoundException('Exam not found');
 
     if (

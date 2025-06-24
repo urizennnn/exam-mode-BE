@@ -1,6 +1,7 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { v4 } from 'uuid';
 
 @Injectable()
 export class AwsService {
@@ -32,9 +33,9 @@ export class AwsService {
       await this.s3Client.send(
         new PutObjectCommand({
           Bucket: this.config.getOrThrow<string>('AWS_BUCKET_NAME'),
-          Key: filename,
+          Key: `${v4()}-${filename}`,
           ContentType: 'application/pdf',
-          ACL: 'public-read',
+          // ACL: 'public-read',
           Body: file,
         }),
       );
