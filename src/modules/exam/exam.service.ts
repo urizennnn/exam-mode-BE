@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { isValidObjectId, Model, Types } from 'mongoose';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { Express } from 'express';
@@ -56,16 +56,18 @@ export class ExamService {
     await newExam.save();
     return { message: 'Exam created successfully' };
   }
-  async getExamByIdorKey(examId: string) {
-    const exam =
-      (await this.examModel.findOne({ examKey: examId }).exec()) ||
-      (await this.examModel.findById(examId).exec());
+  async getExamByIdOrKey(id: string): Promise<Exam> {
+    const isObjectId = isValidObjectId(id);
+    const criteria = isObjectId
+      ? { $or: [{ examKey: id }, { _id: id }] }
+      : { examKey: id };
+
+    const exam = await this.examModel.findOne(criteria).exec();
     if (!exam) {
       throw new NotFoundException('Exam not found');
     }
     return exam;
   }
-
   async getAllExams() {
     return this.examModel.find().exec();
   }
@@ -218,7 +220,7 @@ export class ExamService {
     return { message: 'Exam scheduled' };
   }
 
-  async studentLogin(email: string, examKey: string) {
+  async studentLogin(examKey: string, email: string) {
     this.logger.log(
       `Student login attempt with key: ${examKey} and email: ${email}`,
     );

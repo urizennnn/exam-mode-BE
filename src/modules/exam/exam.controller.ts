@@ -47,7 +47,7 @@ export class ExamController {
   @docs.getExam
   @Get(':id')
   async getExam(@Param('id') id: string) {
-    return this.examService.getExamByIdorKey(id);
+    return this.examService.getExamByIdOrKey(id);
   }
 
   @docs.dropEmailFromInvite
