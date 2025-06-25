@@ -28,19 +28,20 @@ export class AwsService {
     filename: string,
     file: Buffer,
   ): Promise<{ secure_url: string }> {
+    const key = `${v4()}-${filename}`;
     try {
-      this.logger.debug(`Uploading file to S3: ${filename}`);
+      this.logger.debug(`Uploading file to S3: ${key}`);
       await this.s3Client.send(
         new PutObjectCommand({
           Bucket: this.config.getOrThrow<string>('AWS_BUCKET_NAME'),
-          Key: `${v4()}-${filename}`,
+          Key: key,
           ContentType: 'application/pdf',
           // ACL: 'public-read',
           Body: file,
         }),
       );
-      this.logger.debug(`File uploaded successfully: ${filename}`);
-      const url = this.getBucketURL() + filename;
+      this.logger.debug(`File uploaded successfully: ${key}`);
+      const url = this.getBucketURL() + key;
       return { secure_url: url };
     } catch (error) {
       if (error instanceof Error) {

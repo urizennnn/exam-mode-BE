@@ -34,14 +34,10 @@ export class ExamController {
   @NeedsAuth()
   @Post()
   @UseInterceptors(FileInterceptor('file'))
-  async createExam(
-    @Body() dto: CreateExamDto,
-    @Req() req: Request,
-    @UploadedFile() file?: Express.Multer.File,
-  ) {
+  async createExam(@Body() dto: CreateExamDto, @Req() req: Request) {
     const user = req.user!.id;
     dto.lecturer = user as unknown as string;
-    return this.examService.createExam(dto, file);
+    return this.examService.createExam(dto);
   }
 
   @docs.getExam
@@ -119,11 +115,8 @@ export class ExamController {
   }
 
   @Post(':key/logout')
-  async studentLogout(
-    @Param('key') key: string,
-    @Body() email: { email: string },
-  ) {
-    return this.examService.studentLogout(key, email.email);
+  async studentLogout(@Param('key') key: string) {
+    return this.examService.studentLogout(key);
   }
 
   @NeedsAuth()

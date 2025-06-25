@@ -15,7 +15,7 @@ import PDFDocument from 'pdfkit';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { InjectQueue } from '@nestjs/bullmq';
-import { Queue, Job } from 'bullmq';
+import { Queue } from 'bullmq';
 
 import { PDF_QUEUE, ParseJobData, MarkJobData } from 'src/utils/constants';
 import { Exam, ExamDocument } from '../exam/models/exam.model';
@@ -87,7 +87,8 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
   constructor(
     @InjectModel(Exam.name) private readonly examModel: Model<ExamDocument>,
     private readonly producer: PdfQueueProducer,
-    @InjectQueue(PDF_QUEUE) private readonly queue: Queue,
+    @InjectQueue(PDF_QUEUE)
+    private readonly queue: Queue<ParseJobData | MarkJobData, unknown, PdfJobs>,
   ) {}
 
   async enqueueProcessPdf(file: Express.Multer.File, examKey: string) {
@@ -133,15 +134,16 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
     if (!job) throw new NotFoundException('Job not found');
 
     const state = await job.getState();
+
     const info = {
-      id: job.id as string | number | undefined,
-      name: job.name as string,
+      id: job.id,
+      name: job.name,
       state,
-      progress: job.progress as number | object | undefined,
-      attemptsMade: job.attemptsMade as number,
-      processedOn: job.processedOn as number | null,
-      finishedOn: job.finishedOn as number | null,
-      result: (job.returnvalue ?? null) as unknown,
+      progress: job.progress,
+      attemptsMade: job.attemptsMade,
+      processedOn: job.processedOn ?? null,
+      finishedOn: job.finishedOn ?? null,
+      result: job.returnvalue ?? null,
       failedReason: job.failedReason ?? null,
     };
     log.debug(`Job ${id} state: ${state}`);
@@ -232,11 +234,12 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
     try {
       const res = await this.model.generateContent(msgs);
       return res.response.text();
-    } catch (err) {
-      log.warn(
-        `AI generation failed (attempt ${attempt}): ${err instanceof Error ? err.message : err}`,
-      );
-      if (attempt >= 3) throw err;
+    } catch (err: unknown) {
+      const message: string = err instanceof Error ? err.message : String(err);
+      log.warn(`AI generation failed (attempt ${attempt}): ${message}`);
+      if (attempt >= 3) {
+        throw err instanceof Error ? err : new Error(String(err));
+      }
       await sleep(500 * attempt);
       return this.aiGenerateWithRetry(msgs, attempt + 1);
     }

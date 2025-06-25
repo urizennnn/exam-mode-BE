@@ -36,7 +36,7 @@ export class ExamService {
       .exec();
   }
 
-  async createExam(dto: CreateExamDto, _file?: Express.Multer.File) {
+  async createExam(dto: CreateExamDto) {
     const existingExam = await this.examModel
       .findOne({ examKey: dto.examKey })
       .exec();
@@ -178,7 +178,7 @@ export class ExamService {
     return { message: 'Submission updated' };
   }
 
-  async studentLogout(key: string, email: string) {
+  async studentLogout(key: string) {
     const exam = await this.examModel.findOne({ examKey: key }).exec();
     if (!exam) throw new NotFoundException('Exam not found');
     return { message: 'Logout successful' };
@@ -209,8 +209,11 @@ export class ExamService {
   async duplicateExam(id: string, examKey: string) {
     const exam = await this.examModel.findById(id).lean().exec();
     if (!exam) throw new NotFoundException('Exam not found');
-    delete (exam as any)._id;
-    const dup = new this.examModel({ ...exam, examKey });
+    const { _id: discard, ...rest } = exam as {
+      _id: unknown;
+    } & Record<string, unknown>;
+    void discard;
+    const dup = new this.examModel({ ...rest, examKey });
     await dup.save();
     return { message: 'Exam duplicated', examId: dup._id };
   }

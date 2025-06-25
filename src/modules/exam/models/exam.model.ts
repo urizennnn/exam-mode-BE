@@ -117,7 +117,7 @@ ExamSchema.pre<ExamDocument>('save', function (next) {
     }
     if (this.access == ExamAccessType.OPEN) {
       this.startDate = new Date();
-      this.endDate = '' as any;
+      this.endDate = '';
     }
   }
 
