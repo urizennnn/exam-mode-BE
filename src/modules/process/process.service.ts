@@ -235,108 +235,19 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
       const extracted = (await safeExtract(buffer)).trim();
       if (!extracted) throw new BadRequestException('No text found in PDF');
 
-      const scoreText = (
-        await this.aiGenerateWithRetry([this.markPrompt, extracted])
-      ).trim();
-      if (!/^\s*\d+\s*\/\s*\d+\s*$/.test(scoreText)) {
-        throw new BadRequestException(`Unexpected score format "${scoreText}"`);
-      }
+      const scoreText = await this.generateScoreText(extracted);
 
-      const doc = await PDFDocument.create();
-      const existingPdf = await PDFDocument.load(buffer);
-      const newPage = doc.addPage();
-      const { width, height } = newPage.getSize();
-      const boldFont = await doc.embedFont(StandardFonts.HelveticaBold);
-      const regularFont = await doc.embedFont(StandardFonts.Helvetica);
-      const fontSize = 12;
-      const headerFontSize = 14;
-
-      const logoPath = path.resolve('src', 'assets', 'images', 'logo.png');
-      const logoBytes = await readFile(logoPath);
-      const logoImg = await doc.embedPng(logoBytes);
-      const logoScale = 0.4;
-      newPage.drawImage(logoImg, {
-        x: 50,
-        y: height - logoImg.height * logoScale - 50,
-        width: logoImg.width * logoScale,
-        height: logoImg.height * logoScale,
-      });
-
-      const headerText = 'Exam-Module';
-      const headerWidth = boldFont.widthOfTextAtSize(
-        headerText,
-        headerFontSize,
+      const pdfBytes = await this.createTranscriptPdf(
+        buffer,
+        scoreText,
+        examKey,
+        email,
+        studenName,
+        timeSpent,
       );
-      newPage.drawText(headerText, {
-        x: (width - headerWidth) / 2,
-        y: height - 70,
-        size: headerFontSize,
-        font: boldFont,
-        color: rgb(0.1, 0.3, 0.6),
-      });
-
-      const scoreLabel = `Score: ${scoreText}`;
-      const scoreWidth = boldFont.widthOfTextAtSize(scoreLabel, headerFontSize);
-      newPage.drawText(scoreLabel, {
-        x: width - scoreWidth - 50,
-        y: height - 70,
-        size: headerFontSize,
-        font: boldFont,
-        color: rgb(0.1, 0.3, 0.6),
-      });
-
-      const centerDetails = [
-        `Student: ${email} (${studenName})`,
-        `Exam Key: ${examKey}`,
-        `Time Submitted: ${new Date().toISOString().split('T')[0]}`,
-        `Time Spent: ${timeSpent}s`,
-      ];
-      const yCenterStart = height - 100;
-      centerDetails.forEach((line, idx) => {
-        const textWidth = regularFont.widthOfTextAtSize(line, fontSize);
-        const x = (width - textWidth) / 2;
-        newPage.drawText(line, {
-          x,
-          y: yCenterStart - idx * 20,
-          size: fontSize,
-          font: regularFont,
-          color: rgb(0.2, 0.2, 0.2),
-        });
-      });
-
-      const dividerY = yCenterStart - centerDetails.length * 20 - 20;
-
-      const contentPages = await doc.embedPages(existingPdf.getPages());
-      const contentWidth = width - 100;
-      const firstY = dividerY - 40;
-
-      contentPages.forEach((page, idx) => {
-        let targetPage = newPage;
-        let yPos = firstY;
-        if (idx > 0) {
-          targetPage = doc.addPage();
-          const size = targetPage.getSize();
-          yPos = size.height - 50;
-        }
-
-        const scale = contentWidth / page.width;
-        const scaledHeight = page.height * scale;
-        targetPage.drawPage(page, {
-          x: 50,
-          y: yPos - scaledHeight,
-          width: contentWidth,
-          height: scaledHeight,
-        });
-      });
-
-      const pdfBytes = await doc.save();
-      const uploadFile = {
-        buffer: Buffer.from(pdfBytes),
-        originalname: `transcript-${examKey}-${email}.pdf`,
-      } as Express.Multer.File;
-      const { secure_url: transcriptUrl } = await this.aws.uploadFile(
-        uploadFile.originalname,
-        uploadFile.buffer,
+      const transcriptUrl = await this.uploadTranscript(
+        `transcript-${examKey}-${email}.pdf`,
+        pdfBytes,
       );
 
       const submission: Submissions = {
@@ -347,7 +258,7 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
         timeSubmitted: new Date().toISOString(),
         timeSpent,
       };
-      exam.submissions.push(submission);
+      this.upsertSubmission(exam, submission);
       await exam.save();
       await unlink(tmpPath);
 
@@ -359,6 +270,124 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
       log.error(`Error details: ${JSON.stringify(err.stack)}`);
       throw new BadRequestException(`Error processing PDF: ${err.message}`);
     }
+  }
+
+  private async generateScoreText(text: string): Promise<string> {
+    const scoreText = (
+      await this.aiGenerateWithRetry([this.markPrompt, text])
+    ).trim();
+    if (!/^\s*\d+\s*\/\s*\d+\s*$/.test(scoreText))
+      throw new BadRequestException(`Unexpected score format "${scoreText}"`);
+    return scoreText;
+  }
+
+  private async createTranscriptPdf(
+    buffer: Buffer,
+    scoreText: string,
+    examKey: string,
+    email: string,
+    studenName: string | undefined,
+    timeSpent: number,
+  ): Promise<Buffer> {
+    const doc = await PDFDocument.create();
+    const existingPdf = await PDFDocument.load(buffer);
+    const newPage = doc.addPage();
+    const { width, height } = newPage.getSize();
+    const boldFont = await doc.embedFont(StandardFonts.HelveticaBold);
+    const regularFont = await doc.embedFont(StandardFonts.Helvetica);
+    const fontSize = 12;
+    const headerFontSize = 14;
+
+    const logoPath = path.resolve('src', 'assets', 'images', 'logo.png');
+    const logoBytes = await readFile(logoPath);
+    const logoImg = await doc.embedPng(logoBytes);
+    const logoScale = 0.4;
+    newPage.drawImage(logoImg, {
+      x: 50,
+      y: height - logoImg.height * logoScale - 50,
+      width: logoImg.width * logoScale,
+      height: logoImg.height * logoScale,
+    });
+
+    const headerText = 'Exam-Module';
+    const headerWidth = boldFont.widthOfTextAtSize(headerText, headerFontSize);
+    newPage.drawText(headerText, {
+      x: (width - headerWidth) / 2,
+      y: height - 70,
+      size: headerFontSize,
+      font: boldFont,
+      color: rgb(0.1, 0.3, 0.6),
+    });
+
+    const scoreLabel = `Score: ${scoreText}`;
+    const scoreWidth = boldFont.widthOfTextAtSize(scoreLabel, headerFontSize);
+    newPage.drawText(scoreLabel, {
+      x: width - scoreWidth - 50,
+      y: height - 70,
+      size: headerFontSize,
+      font: boldFont,
+      color: rgb(0.1, 0.3, 0.6),
+    });
+
+    const centerDetails = [
+      `Student: ${email} (${studenName})`,
+      `Exam Key: ${examKey}`,
+      `Time Submitted: ${new Date().toISOString().split('T')[0]}`,
+      `Time Spent: ${timeSpent}s`,
+    ];
+    const yCenterStart = height - 100;
+    centerDetails.forEach((line, idx) => {
+      const textWidth = regularFont.widthOfTextAtSize(line, fontSize);
+      const x = (width - textWidth) / 2;
+      newPage.drawText(line, {
+        x,
+        y: yCenterStart - idx * 20,
+        size: fontSize,
+        font: regularFont,
+        color: rgb(0.2, 0.2, 0.2),
+      });
+    });
+
+    const dividerY = yCenterStart - centerDetails.length * 20 - 20;
+
+    const contentPages = await doc.embedPages(existingPdf.getPages());
+    const contentWidth = width - 100;
+    const firstY = dividerY - 40;
+
+    contentPages.forEach((page, idx) => {
+      let targetPage = newPage;
+      let yPos = firstY;
+      if (idx > 0) {
+        targetPage = doc.addPage();
+        const size = targetPage.getSize();
+        yPos = size.height - 50;
+      }
+
+      const scale = contentWidth / page.width;
+      const scaledHeight = page.height * scale;
+      targetPage.drawPage(page, {
+        x: 50,
+        y: yPos - scaledHeight,
+        width: contentWidth,
+        height: scaledHeight,
+      });
+    });
+
+    return Buffer.from(await doc.save());
+  }
+
+  private async uploadTranscript(
+    filename: string,
+    buffer: Buffer,
+  ): Promise<string> {
+    const { secure_url } = await this.aws.uploadFile(filename, buffer);
+    return secure_url;
+  }
+
+  private upsertSubmission(exam: ExamDocument, submission: Submissions) {
+    const idx = exam.submissions.findIndex((s) => s.email === submission.email);
+    if (idx >= 0) exam.submissions[idx] = submission;
+    else exam.submissions.push(submission);
   }
 
   private async aiGenerateWithRetry(

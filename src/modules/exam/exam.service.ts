@@ -41,13 +41,19 @@ export class ExamService {
     private readonly config: ConfigService,
   ) {
     this.events.on(STUDENT_IN_EVENT, (examId: string) => {
-      this.handleStudentIn(examId).catch((err) =>
-        this.logger.error('handleStudentIn error', err.stack || err),
+      this.handleStudentIn(examId).catch((err: unknown) =>
+        this.logger.error(
+          'handleStudentIn error',
+          (err as Error).stack ?? String(err),
+        ),
       );
     });
     this.events.on(STUDENT_OUT_EVENT, (examId: string) => {
-      this.handleStudentOut(examId).catch((err) =>
-        this.logger.error('handleStudentOut error', err.stack || err),
+      this.handleStudentOut(examId).catch((err: unknown) =>
+        this.logger.error(
+          'handleStudentOut error',
+          (err as Error).stack ?? String(err),
+        ),
       );
     });
   }
@@ -257,7 +263,8 @@ export class ExamService {
     const exam = await this.examModel.findById(id).lean().exec();
     if (!exam) throw new NotFoundException('Exam not found');
 
-    const { _id, ...rest } = exam as any;
+    const { _id: _unused, ...rest } = exam as Record<string, unknown>;
+    void _unused;
     const dup = new this.examModel({ ...rest, examKey });
     await dup.save();
     return { message: 'Exam duplicated', examId: dup._id };

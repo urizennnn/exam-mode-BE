@@ -60,7 +60,7 @@ export const ProcessControllerSwagger = {
     }),
     ApiQuery({
       name: 'studentAnswer',
-      description: 'The Cloudinary URL of the student’s answer PDF',
+      description: 'The S3 URL of the student’s answer PDF',
       schema: { type: 'string' },
     }),
     ApiConsumes('multipart/form-data'),

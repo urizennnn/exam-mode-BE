@@ -10,7 +10,6 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { QueueModule } from './lib/queue/queue.module';
 import { EventsModule } from './lib/events/events.module';
 import 'dotenv/config';
-import { CloudinaryModule } from './lib/cloudinary/cloudinary.module';
 import { AwsModule } from './lib/aws/aws.module';
 import { RequestLoggerMiddleware } from './common';
 
@@ -33,7 +32,6 @@ import { RequestLoggerMiddleware } from './common';
     UserModule,
     ExamModule,
     QueueModule,
-    CloudinaryModule,
     EventsModule,
     AwsModule,
   ],
