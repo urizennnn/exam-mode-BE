@@ -7,6 +7,7 @@ import { User, UserSchema } from '../users/models/user.model';
 import { EXAM_SCHEDULER_QUEUE } from 'src/utils/constants';
 import { BullModule } from '@nestjs/bullmq';
 import { ProcessModule } from '../process/process.module';
+import { ConfigService } from '@nestjs/config';
 
 @Module({
   imports: [
@@ -24,6 +25,6 @@ import { ProcessModule } from '../process/process.module';
     forwardRef(() => ProcessModule),
   ],
   controllers: [ExamController],
-  providers: [ExamService],
+  providers: [ExamService, ConfigService],
 })
 export class ExamModule {}

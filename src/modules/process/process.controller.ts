@@ -35,8 +35,15 @@ export class ProcessController {
     @Param('examKey') examKey: string,
     @Query('email') email: string,
     @Query('studentAnswer') studentAnswer: string,
+    @Query('timeSpent') timeSpent: number,
   ): Promise<{ jobId: string | undefined; message: string }> {
-    return this.service.enqueueMarkPdf(file, examKey, email, studentAnswer);
+    return this.service.enqueueMarkPdf(
+      file,
+      examKey,
+      email,
+      studentAnswer,
+      timeSpent,
+    );
   }
 
   @Get('job/:id')

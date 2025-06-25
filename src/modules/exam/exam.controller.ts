@@ -115,8 +115,11 @@ export class ExamController {
   }
 
   @Post(':key/logout')
-  async studentLogout(@Param('key') key: string) {
-    return this.examService.studentLogout(key);
+  async studentLogout(
+    @Param('key') key: string,
+    @Body() body: { email: string },
+  ) {
+    return this.examService.studentLogout(key, body.email);
   }
 
   @NeedsAuth()
