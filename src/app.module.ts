@@ -27,7 +27,7 @@ import { RequestLoggerMiddleware } from './common';
       }),
     }),
 
-    MongooseModule.forRoot(process.env.URI!),
+    MongooseModule.forRoot(process.env.MONGO_URI!),
     ProcessModule,
     UserModule,
     ExamModule,
