@@ -274,7 +274,10 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
       .stroke();
 
     doc.end();
-    await new Promise<void>((resolve) => stream.on('finish', resolve));
+    await new Promise<void>((resolve, reject) => {
+      stream.on('finish', resolve);
+      stream.on('error', reject);
+    });
     return filePath;
   }
 
