@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { writeFile, readFile, unlink } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import PDFDocument from 'pdfkit';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -93,7 +94,7 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
     this.validateFile(file);
     if (!(await this.examModel.exists({ examKey })))
       throw new BadRequestException('Exam not found');
-    const tmpPath = `/tmp/${Date.now()}-${file.originalname}`;
+    const tmpPath = `/tmp/${randomUUID()}-${file.originalname}`;
     await writeFile(tmpPath, file.buffer);
     const job = await this.producer.enqueueProcess({ tmpPath, examKey });
     log.verbose(`Queued parse job ${job.id} for ${file.originalname}`);
@@ -110,7 +111,7 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
     if (!(await this.examModel.exists({ examKey })))
       throw new BadRequestException('Exam not found');
 
-    const tmpPath = `/tmp/${Date.now()}-${file.originalname}`;
+    const tmpPath = `/tmp/${randomUUID()}-${file.originalname}`;
     await writeFile(tmpPath, file.buffer);
 
     const job = await this.producer.enqueueMark({
@@ -247,7 +248,7 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
     score: string,
   ): Promise<string> {
     const doc = new PDFDocument({ margin: 50 });
-    const filePath = `/tmp/result-${Date.now()}.pdf`;
+    const filePath = `/tmp/result-${randomUUID()}.pdf`;
     const stream = createWriteStream(filePath);
     doc.pipe(stream);
 
