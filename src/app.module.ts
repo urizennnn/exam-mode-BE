@@ -38,7 +38,8 @@ import { RequestLoggerMiddleware } from './common';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        uri: config.get<string>('MONGO_URI')!,
+        uri: 'mongodb+srv://supportdocenti:H5fA7cVlrbq0yEKE@cluster0.5sjmtdr.mongodb.net/Exam?retryWrites=true&w=majority&appName=Cluster0',
+        // uri: config.get<string>('MONGO_URI')!,
       }),
     }),
 
