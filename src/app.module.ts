@@ -1,4 +1,5 @@
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -41,6 +42,8 @@ import { RequestLoggerMiddleware } from './common';
         uri: config.get<string>('MONGO_URI')!,
       }),
     }),
+
+    ScheduleModule.forRoot(),
 
     ProcessModule,
     UserModule,
