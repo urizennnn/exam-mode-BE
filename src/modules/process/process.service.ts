@@ -2,7 +2,6 @@ import pdfparse from 'pdf-parse';
 import {
   BadRequestException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { GenerativeModel, GoogleGenerativeAI } from '@google/generative-ai';
@@ -20,6 +19,8 @@ import { Exam, ExamDocument } from '../exam/models/exam.model';
 import { PdfQueueProducer } from 'src/lib/queue/queue.producer';
 import { Submissions, ParsedQuestion } from '../exam/interfaces/exam.interface';
 import { AwsService } from 'src/lib/aws/aws.service';
+import { DocentiLogger } from 'src/lib/logger';
+import { TracingService } from 'src/lib/tracing';
 
 interface JobInfo {
   id: string;
@@ -33,33 +34,6 @@ interface JobInfo {
   failedReason: string | null;
 }
 
-const log = new Logger('ProcessService');
-const originalWarn = console.warn;
-
-function filterWarn(...msg: unknown[]) {
-  const m = String(msg[0]);
-  if (m.includes('FormatError') || m.includes('Indexing all PDF objects'))
-    return;
-  originalWarn(...msg);
-}
-
-async function safeExtract(buffer: Buffer): Promise<string> {
-  console.warn = filterWarn;
-  try {
-    const { text } = await pdfparse(buffer);
-    if (text.trim()) return text;
-  } catch {
-    log.warn('PDF parsing failed');
-  } finally {
-    console.warn = originalWarn;
-  }
-  const stdout = execFileSync(
-    'pdftotext',
-    ['-q', '-enc', 'UTF-8', '-layout', '-', '-'],
-    { input: buffer },
-  );
-  return stdout.toString('utf8');
-}
 
 @Injectable()
 export class ProcessService {
@@ -67,6 +41,8 @@ export class ProcessService {
   private readonly model: GenerativeModel = this.ai.getGenerativeModel({
     model: 'gemini-2.0-flash',
   });
+
+  private readonly originalWarn = console.warn;
 
   // NOTE: DO NOT CHANGE THESE PROMPTS WITHOUT TESTING!
   private readonly markPrompt =
@@ -94,7 +70,33 @@ Rules:
 - Remove any leading or trailing whitespace from all text.
 - Remove duplicate options if shown in the source.
 - If no questions are present, return an empty array.
-Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
+  Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
+
+  private filterWarn(...msg: unknown[]) {
+    const m = String(msg[0]);
+    if (m.includes('FormatError') || m.includes('Indexing all PDF objects')) {
+      return;
+    }
+    this.originalWarn(...msg);
+  }
+
+  private async safeExtract(buffer: Buffer): Promise<string> {
+    console.warn = this.filterWarn.bind(this);
+    try {
+      const { text } = await pdfparse(buffer);
+      if (text.trim()) return text;
+    } catch {
+      this.logger.warn('PDF parsing failed');
+    } finally {
+      console.warn = this.originalWarn;
+    }
+    const stdout = execFileSync(
+      'pdftotext',
+      ['-q', '-enc', 'UTF-8', '-layout', '-', '-'],
+      { input: buffer },
+    );
+    return stdout.toString('utf8');
+  }
 
   constructor(
     @InjectModel(Exam.name) private readonly examModel: Model<ExamDocument>,
@@ -102,6 +104,8 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
     @InjectQueue(PDF_QUEUE)
     private readonly queue: Queue<ParseJobData | MarkJobData, string>,
     private readonly aws: AwsService,
+    private readonly logger: DocentiLogger,
+    private readonly tracing: TracingService,
   ) {}
 
   async enqueueProcessPdf(file: Express.Multer.File, examKey: string) {
@@ -109,7 +113,7 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
     const tmpPath = `/tmp/${Date.now()}-${file.originalname}`;
     await writeFile(tmpPath, file.buffer);
     const job = await this.producer.enqueueProcess({ tmpPath, examKey });
-    log.verbose(`Queued parse job ${job.id} for ${file.originalname}`);
+    this.logger.verbose(`Queued parse job ${job.id} for ${file.originalname}`);
     return { jobId: job.id };
   }
 
@@ -133,13 +137,14 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
         studentAnswer,
         timeSpent,
       });
-      log.verbose(`Queued mark job ${job.id} for exam ${examKey} – ${email}`);
+      this.logger.verbose(`Queued mark job ${job.id} for exam ${examKey} – ${email}`);
       return {
         jobId: job.id,
         message: 'Exam marking job queued successfully',
       };
     } catch (e) {
-      log.error(`Error in enqueueMarkPdf: ${JSON.stringify(e)}`);
+      this.logger.error(`Error in enqueueMarkPdf: ${JSON.stringify(e)}`);
+      this.tracing.captureException(e);
       throw new BadRequestException(
         `Error processing PDF: ${e instanceof Error ? e.message : e}`,
       );
@@ -166,15 +171,15 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
       result: job.returnvalue,
       failedReason: job.failedReason ?? null,
     };
-    log.debug(`Job ${id} state: ${state}`);
+    this.logger.debug(`Job ${id} state: ${state}`);
     return info;
   }
 
   async parsePdfWorker({ tmpPath, examKey }: ParseJobData): Promise<unknown> {
-    log.debug(`Processing parse worker for ${tmpPath}`);
+    this.logger.debug(`Processing parse worker for ${tmpPath}`);
     try {
       const buffer = await readFile(tmpPath);
-      const extracted = (await safeExtract(buffer)).trim();
+      const extracted = (await this.safeExtract(buffer)).trim();
       if (!extracted) throw new BadRequestException('No text found in PDF');
       const raw = await this.aiGenerateWithRetry([
         this.parsePrompt,
@@ -192,14 +197,14 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
       try {
         parsed = JSON.parse(raw) as unknown;
       } catch {
-        log.warn(`AI returned non-JSON output for ${tmpPath}; returning raw`);
+        this.logger.warn(`AI returned non-JSON output for ${tmpPath}; returning raw`);
         parsed = raw;
       }
 
       if (examKey) {
         const exam = await this.examModel.findOne({ examKey }).exec();
         if (exam) {
-          log.debug(`Updating exam ${examKey} with parsed questions`);
+          this.logger.debug(`Updating exam ${examKey} with parsed questions`);
           const arr = (
             Array.isArray(parsed) ? parsed : [parsed]
           ) as ParsedQuestion[];
@@ -215,12 +220,13 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
   }
 
   async markPdfWorker(data: MarkJobData): Promise<string> {
-    log.debug(`Processing mark worker for job file ${data.tmpPath}`);
+    this.logger.debug(`Processing mark worker for job file ${data.tmpPath}`);
     try {
       return await this.performMark(data);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      log.error(`Error in markPdfWorker: ${JSON.stringify(msg)}`);
+      this.logger.error(`Error in markPdfWorker: ${JSON.stringify(msg)}`);
+      this.tracing.captureException(e);
       throw new BadRequestException(`Error processing PDF: ${msg}`);
     }
   }
@@ -232,7 +238,7 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
       if (!exam) throw new NotFoundException('Exam not found');
       const studenName = exam.invites.find((i) => i.email === email)?.name;
       const buffer = await readFile(tmpPath);
-      const extracted = (await safeExtract(buffer)).trim();
+      const extracted = (await this.safeExtract(buffer)).trim();
       if (!extracted) throw new BadRequestException('No text found in PDF');
 
       const scoreText = await this.generateScoreText(extracted);
@@ -262,12 +268,13 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
       await exam.save();
       await unlink(tmpPath);
 
-      log.log(`Mark worker completed for ${tmpPath}`);
+      this.logger.log(`Mark worker completed for ${tmpPath}`);
       return scoreText;
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
-      log.error(`Error in performMark: ${JSON.stringify(err.message)}`);
-      log.error(`Error details: ${JSON.stringify(err.stack)}`);
+      this.logger.error(`Error in performMark: ${JSON.stringify(err.message)}`);
+      this.logger.error(`Error details: ${JSON.stringify(err.stack)}`);
+      this.tracing.captureException(e);
       throw new BadRequestException(`Error processing PDF: ${err.message}`);
     }
   }
@@ -398,7 +405,8 @@ Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
       const res = await this.model.generateContent(msgs);
       return res.response.text();
     } catch (err) {
-      log.warn(`AI fail x${attempt}: ${(err as Error).message}`);
+      this.logger.warn(`AI fail x${attempt}: ${(err as Error).message}`);
+      this.tracing.captureException(err);
       if (attempt >= 3) throw err;
       await sleep(500 * attempt);
       return this.aiGenerateWithRetry(msgs, attempt + 1);

@@ -66,6 +66,19 @@ Emails are sent using Zoho's ZeptoMail API. Configure these environment variable
 - `ZEPTO_TOKEN` – your ZeptoMail send mail token
 - `ZEPTO_FROM` – default sender address
 
+## Monitoring
+
+Tracing and profiling are enabled through [Datadog APM](https://docs.datadoghq.com/tracing/).
+Configuration lives under `src/lib/tracing` and is loaded automatically at startup.
+Provide these environment variables when running in production:
+
+- `DD_SERVICE` – name of the service
+- `DD_ENV` – environment name, e.g. `production`
+- `DD_AGENT_HOST` – Datadog agent hostname
+- `DD_TRACE_AGENT_PORT` – Datadog agent port (defaults to `8126`)
+
+Errors logged through the application logger are attached to the current trace span with full stack information.
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.

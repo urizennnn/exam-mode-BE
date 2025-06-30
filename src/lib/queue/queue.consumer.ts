@@ -1,5 +1,5 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Job } from 'bullmq';
 
 import {
@@ -17,13 +17,17 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { ProcessService } from 'src/modules/process/process.service';
+import { DocentiLogger } from 'src/lib/logger';
+import { TracingService } from 'src/lib/tracing';
 
 @Processor(PDF_QUEUE)
 @Injectable()
 export class PdfQueueConsumer extends WorkerHost {
-  private readonly log = new Logger(PdfQueueConsumer.name);
-
-  constructor(private readonly processSvc: ProcessService) {
+  constructor(
+    private readonly processSvc: ProcessService,
+    private readonly log: DocentiLogger,
+    private readonly tracing: TracingService,
+  ) {
     super();
   }
   async process(job: Job): Promise<unknown> {

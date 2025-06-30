@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import {
@@ -8,11 +8,16 @@ import {
   ParseJobData,
 } from 'src/utils/constants';
 import { randomUUID } from 'node:crypto';
+import { DocentiLogger } from 'src/lib/logger';
+import { TracingService } from 'src/lib/tracing';
 
 @Injectable()
 export class PdfQueueProducer {
-  private readonly log = new Logger(PdfQueueProducer.name);
-  constructor(@InjectQueue(PDF_QUEUE) private readonly queue: Queue) {}
+  constructor(
+    @InjectQueue(PDF_QUEUE) private readonly queue: Queue,
+    private readonly log: DocentiLogger,
+    private readonly tracing: TracingService,
+  ) {}
 
   enqueueProcess(data: ParseJobData) {
     this.log.verbose(`Queueing parse job for ${data.examKey || data.tmpPath}`);
