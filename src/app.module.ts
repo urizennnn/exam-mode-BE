@@ -1,4 +1,9 @@
-import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
+import {
+  Module,
+  MiddlewareConsumer,
+  NestModule,
+  RequestMethod,
+} from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AppController } from './app.controller';
@@ -13,6 +18,7 @@ import { QueueModule } from './lib/queue/queue.module';
 import { EventsModule } from './lib/events/events.module';
 import { AwsModule } from './lib/aws/aws.module';
 import { RequestLoggerMiddleware } from './common';
+import { LoggerModule } from './lib/logger';
 
 @Module({
   imports: [
@@ -51,12 +57,15 @@ import { RequestLoggerMiddleware } from './common';
     QueueModule,
     EventsModule,
     AwsModule,
+    LoggerModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(RequestLoggerMiddleware).forRoutes('*');
+    consumer
+      .apply(RequestLoggerMiddleware)
+      .forRoutes({ path: '*', method: RequestMethod.ALL });
   }
 }

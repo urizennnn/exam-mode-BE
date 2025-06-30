@@ -21,6 +21,11 @@ export class UserService {
   ) {}
 
   async signup(dto: CreateUserDto): Promise<{ message: string }> {
+    const userCount = this.userModel.countDocuments();
+    if (+userCount == 5) {
+      this.logger.warn(`Signup attempt failed – user limit reached`);
+      throw new BadRequestException('User limit reached');
+    }
     this.logger.log(`Signup attempt for ${dto.email}`);
     const existingUser = await this.userModel
       .findOne({ email: dto.email })
