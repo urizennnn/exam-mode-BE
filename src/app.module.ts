@@ -30,10 +30,13 @@ import { LoggerModule } from './lib/logger';
     }),
 
     ThrottlerModule.forRoot({
-      ttl: 60,
-      limit: 100,
+      throttlers: [
+        {
+          ttl: 60,
+          limit: 50,
+        },
+      ],
     }),
-
     MulterModule.registerAsync({
       useFactory: () => ({ dest: './uploads' }),
     }),
