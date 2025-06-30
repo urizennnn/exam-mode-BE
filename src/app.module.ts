@@ -19,7 +19,6 @@ import { EventsModule } from './lib/events/events.module';
 import { AwsModule } from './lib/aws/aws.module';
 import { RequestLoggerMiddleware } from './common';
 import { LoggerModule } from './lib/logger';
-import { DefaultErrorController } from './default.controller';
 
 @Module({
   imports: [
@@ -60,7 +59,7 @@ import { DefaultErrorController } from './default.controller';
     AwsModule,
     LoggerModule,
   ],
-  controllers: [AppController, DefaultErrorController],
+  controllers: [AppController],
   providers: [AppService],
 })
 export class AppModule implements NestModule {

@@ -52,6 +52,7 @@ export class PdfQueueConsumer extends WorkerHost {
 export class ExamSchedulerProcessor {
   constructor(
     @InjectModel(Exam.name) private readonly examModel: Model<ExamDocument>,
+    private readonly log: DocentiLogger,
   ) {}
 
   async handleOpenExam(job: Job<{ examId: string }>) {
