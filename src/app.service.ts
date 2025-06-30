@@ -3,10 +3,18 @@ import { Injectable } from '@nestjs/common';
 @Injectable()
 export class AppService {
   getHello(): string {
-    return 'Hello World!';
+    try {
+      return 'Hello World!';
+    } catch (err) {
+      throw err;
+    }
   }
 
   checkHealth(): string {
-    return 'v4.0.0 - OK';
+    try {
+      return 'v4.0.0 - OK';
+    } catch (err) {
+      throw err;
+    }
   }
 }

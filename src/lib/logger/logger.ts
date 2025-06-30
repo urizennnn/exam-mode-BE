@@ -3,7 +3,6 @@ import { INQUIRER } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { createLogger, format, Logform, Logger, transports } from 'winston';
 import { sprintf as sprintfJs } from 'sprintf-js';
-import { tracer } from '../tracing';
 
 export type Constructor<T = object> = new (...args: any[]) => T;
 
@@ -110,20 +109,6 @@ export class DocentiLogger {
     const lastArg = args.length > 0 ? args[args.length - 1] : undefined;
     const isTraceError = this.isErrorLike(lastArg);
     const messageArgs = isTraceError ? args.slice(0, -1) : args;
-    if (isTraceError) {
-      const span = tracer.scope().active();
-      if (span) {
-        span.setTag('error', true);
-        const err = lastArg as TraceableError;
-        if (err instanceof Error) {
-          span.setTag('error.message', err.message);
-          span.setTag('error.stack', err.stack || '');
-          span.setTag('error.type', err.name);
-        } else {
-          span.setTag('error.message', String(err));
-        }
-      }
-    }
     this.logger.error({
       message: this.formatMessage(message, messageArgs),
       context: this.context,

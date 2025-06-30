@@ -28,7 +28,6 @@ import {
   STUDENT_OUT_EVENT,
 } from 'src/lib/events/events.constants';
 import { DocentiLogger } from 'src/lib/logger';
-import { TracingService } from 'src/lib/tracing';
 
 @Injectable()
 export class ExamService {
@@ -39,7 +38,6 @@ export class ExamService {
     private readonly events: AppEvents,
     private readonly config: ConfigService,
     private readonly logger: DocentiLogger,
-    private readonly tracing: TracingService,
   ) {
     this.events.on(STUDENT_IN_EVENT, (examId: string) => {
       this.handleStudentIn(examId).catch((err: unknown) => {
@@ -47,7 +45,6 @@ export class ExamService {
           'handleStudentIn error',
           (err as Error).stack ?? String(err),
         );
-        this.tracing.captureException(err);
       });
     });
     this.events.on(STUDENT_OUT_EVENT, (examId: string) => {
@@ -56,77 +53,116 @@ export class ExamService {
           'handleStudentOut error',
           (err as Error).stack ?? String(err),
         );
-        this.tracing.captureException(err);
       });
     });
   }
 
   async searchExam(key: string) {
-    return this.examModel
-      .find({ examKey: { $regex: key, $options: 'i' } })
-      .exec();
+    try {
+      return this.examModel
+        .find({ examKey: { $regex: key, $options: 'i' } })
+        .exec();
+    } catch (err) {
+      this.logger.error('searchExam failed', err as Error);
+      throw err;
+    }
   }
 
   async createExam(dto: CreateExamDto) {
-    const existing = await this.examModel
-      .findOne({ examKey: dto.examKey })
-      .exec();
-    if (existing) {
-      existing.set({ ...dto, lecturer: new Types.ObjectId(dto.lecturer) });
-      await existing.save();
-      return { message: 'Exam updated successfully' };
+    try {
+      const existing = await this.examModel
+        .findOne({ examKey: dto.examKey })
+        .exec();
+      if (existing) {
+        existing.set({ ...dto, lecturer: new Types.ObjectId(dto.lecturer) });
+        await existing.save();
+        return { message: 'Exam updated successfully' };
+      }
+      const exam = new this.examModel({
+        ...dto,
+        lecturer: new Types.ObjectId(dto.lecturer),
+      });
+      await exam.save();
+      return { message: 'Exam created successfully' };
+    } catch (err) {
+      this.logger.error('createExam failed', err as Error);
+      throw err;
     }
-    const exam = new this.examModel({
-      ...dto,
-      lecturer: new Types.ObjectId(dto.lecturer),
-    });
-    await exam.save();
-    return { message: 'Exam created successfully' };
   }
 
   async getExamByIdOrKey(id: string): Promise<Exam> {
-    const isObjectId = isValidObjectId(id);
-    const criteria = isObjectId
-      ? { $or: [{ examKey: id }, { _id: id }] }
-      : { examKey: id };
+    try {
+      const isObjectId = isValidObjectId(id);
+      const criteria = isObjectId
+        ? { $or: [{ examKey: id }, { _id: id }] }
+        : { examKey: id };
 
-    const exam = await this.examModel.findOne(criteria).exec();
-    if (!exam) throw new NotFoundException('Exam not found');
-    return exam;
+      const exam = await this.examModel.findOne(criteria).exec();
+      if (!exam) throw new NotFoundException('Exam not found');
+      return exam;
+    } catch (err) {
+      this.logger.error('getExamByIdOrKey failed', err as Error);
+      throw err;
+    }
   }
 
   async getAllExams() {
-    return this.examModel.find().exec();
+    try {
+      return this.examModel.find().exec();
+    } catch (err) {
+      this.logger.error('getAllExams failed', err as Error);
+      throw err;
+    }
   }
 
   async deleteExam(examId: string) {
-    const result = await this.examModel.deleteOne({ _id: examId }).exec();
-    if (result.deletedCount === 0)
-      throw new NotFoundException('Exam not found');
-    return { message: 'Exam deleted successfully' };
+    try {
+      const result = await this.examModel.deleteOne({ _id: examId }).exec();
+      if (result.deletedCount === 0)
+        throw new NotFoundException('Exam not found');
+      return { message: 'Exam deleted successfully' };
+    } catch (err) {
+      this.logger.error('deleteExam failed', err as Error);
+      throw err;
+    }
   }
 
   async deleteManyExams(examIds: string[]) {
-    const objectIds = examIds.map((id) => new Types.ObjectId(id));
-    const result = await this.examModel
-      .deleteMany({ _id: { $in: objectIds } })
-      .exec();
-    if (result.deletedCount === 0)
-      throw new NotFoundException('No exams found for the provided IDs');
-    return { message: 'Exams deleted successfully' };
+    try {
+      const objectIds = examIds.map((id) => new Types.ObjectId(id));
+      const result = await this.examModel
+        .deleteMany({ _id: { $in: objectIds } })
+        .exec();
+      if (result.deletedCount === 0)
+        throw new NotFoundException('No exams found for the provided IDs');
+      return { message: 'Exams deleted successfully' };
+    } catch (err) {
+      this.logger.error('deleteManyExams failed', err as Error);
+      throw err;
+    }
   }
 
   async updateExam(examId: string, dto: Partial<Exam>) {
-    await this.examModel.updateOne({ _id: examId }, dto).exec();
-    return { message: 'Exam updated successfully' };
+    try {
+      await this.examModel.updateOne({ _id: examId }, dto).exec();
+      return { message: 'Exam updated successfully' };
+    } catch (err) {
+      this.logger.error('updateExam failed', err as Error);
+      throw err;
+    }
   }
 
   async dropEmailFromInvite(email: string, key: string) {
-    await this.examModel.updateOne(
-      { examKey: key },
-      { $pull: { invites: { email: email.toLowerCase() } } },
-    );
-    return { message: 'Email removed' };
+    try {
+      await this.examModel.updateOne(
+        { examKey: key },
+        { $pull: { invites: { email: email.toLowerCase() } } },
+      );
+      return { message: 'Email removed' };
+    } catch (err) {
+      this.logger.error('dropEmailFromInvite failed', err as Error);
+      throw err;
+    }
   }
 
   async sendInvites(
@@ -135,10 +171,11 @@ export class ExamService {
     lecturer: string | Types.ObjectId,
     file?: Express.Multer.File,
   ) {
-    const exam = await this.examModel.findById(id).exec();
-    if (!exam) throw new NotFoundException('Exam not found');
-    if (!exam.lecturer.equals(new Types.ObjectId(lecturer)))
-      throw new BadRequestException('User does not own this exam');
+    try {
+      const exam = await this.examModel.findById(id).exec();
+      if (!exam) throw new NotFoundException('Exam not found');
+      if (!exam.lecturer.equals(new Types.ObjectId(lecturer)))
+        throw new BadRequestException('User does not own this exam');
 
     let emails: string[] = [];
     let names: string[] = [];
@@ -159,7 +196,7 @@ export class ExamService {
       if (exists) exists.name = inv.name;
       else exam.invites.push(inv);
     });
-    await exam.save();
+      await exam.save();
 
     const link =
       exam.link || `${this.config.get('URL')}/student/${exam.id}?mode=student`;
@@ -171,15 +208,20 @@ export class ExamService {
       new Date().toISOString(),
     );
 
-    return { message: 'Invites sent' };
+      return { message: 'Invites sent' };
+    } catch (err) {
+      this.logger.error('sendInvites failed', err as Error);
+      throw err;
+    }
   }
 
   async updateSubmission(
     id: string,
     dto: { email: string; transcript: string },
   ) {
-    const exam = await this.examModel.findById(id).exec();
-    if (!exam) throw new NotFoundException('Exam not found');
+    try {
+      const exam = await this.examModel.findById(id).exec();
+      if (!exam) throw new NotFoundException('Exam not found');
 
     const email = dto.email.toLowerCase();
     const sub = exam.submissions.find((s) => s.email === email);
@@ -195,16 +237,21 @@ export class ExamService {
         timeSpent: 0,
       });
     }
-    await exam.save();
-    return { message: 'Submission updated' };
+      await exam.save();
+      return { message: 'Submission updated' };
+    } catch (err) {
+      this.logger.error('updateSubmission failed', err as Error);
+      throw err;
+    }
   }
 
   async studentLogin(examKey: string, email: string) {
-    this.logger.log(
-      `Student login attempt: key="${examKey}", email="${email}"`,
-    );
-    const exam = await this.examModel.findOne({ examKey }).exec();
-    if (!exam) throw new NotFoundException('Exam not found');
+    try {
+      this.logger.log(
+        `Student login attempt: key="${examKey}", email="${email}"`,
+      );
+      const exam = await this.examModel.findOne({ examKey }).exec();
+      if (!exam) throw new NotFoundException('Exam not found');
 
     if (
       exam.access !== ExamAccessType.OPEN &&
@@ -214,7 +261,7 @@ export class ExamService {
     }
 
     // fire the "in" event
-    this.events.emit(STUDENT_IN_EVENT, exam._id.toString());
+      this.events.emit(STUDENT_IN_EVENT, exam._id.toString());
 
     const questions = Array.isArray(exam.question_text)
       ? [...exam.question_text]
@@ -224,27 +271,37 @@ export class ExamService {
       [questions[i], questions[j]] = [questions[j], questions[i]];
     }
 
-    return {
-      id: exam._id,
-      examName: exam.examName,
-      examKey: exam.examKey,
-      questions,
-    };
+      return {
+        id: exam._id,
+        examName: exam.examName,
+        examKey: exam.examKey,
+        questions,
+      };
+    } catch (err) {
+      this.logger.error('studentLogin failed', err as Error);
+      throw err;
+    }
   }
 
   async studentLogout(examKey: string, email: string) {
-    this.logger.log(`Student logout: key="${examKey}", email="${email}"`);
-    const exam = await this.examModel.findOne({ examKey }).exec();
-    if (!exam) throw new NotFoundException('Exam not found');
+    try {
+      this.logger.log(`Student logout: key="${examKey}", email="${email}"`);
+      const exam = await this.examModel.findOne({ examKey }).exec();
+      if (!exam) throw new NotFoundException('Exam not found');
 
     // fire the "out" event
-    this.events.emit(STUDENT_OUT_EVENT, exam._id.toString());
-    return { message: 'Logout successful' };
+      this.events.emit(STUDENT_OUT_EVENT, exam._id.toString());
+      return { message: 'Logout successful' };
+    } catch (err) {
+      this.logger.error('studentLogout failed', err as Error);
+      throw err;
+    }
   }
 
   async sendExamBack(id: string, email: string | string[]) {
-    const exam = await this.examModel.findById(id).exec();
-    if (!exam) throw new NotFoundException('Exam not found');
+    try {
+      const exam = await this.examModel.findById(id).exec();
+      if (!exam) throw new NotFoundException('Exam not found');
 
     const list = Array.isArray(email) ? email : [email];
     for (const addr of list) {
@@ -257,32 +314,46 @@ export class ExamService {
       await sendTranscript(addr, sub.transcript, exam.examName);
     }
 
-    return {
-      message: `Transcript sent to ${list.length} student${list.length > 1 ? 's' : ''} successfully`,
-    };
+      return {
+        message: `Transcript sent to ${list.length} student${list.length > 1 ? 's' : ''} successfully`,
+      };
+    } catch (err) {
+      this.logger.error('sendExamBack failed', err as Error);
+      throw err;
+    }
   }
 
   async duplicateExam(id: string, examKey: string) {
-    const exam = await this.examModel.findById(id).lean().exec();
-    if (!exam) throw new NotFoundException('Exam not found');
+    try {
+      const exam = await this.examModel.findById(id).lean().exec();
+      if (!exam) throw new NotFoundException('Exam not found');
 
     const { _id: _unused, ...rest } = exam as Record<string, unknown>;
     void _unused;
-    const dup = new this.examModel({ ...rest, examKey });
-    await dup.save();
-    return { message: 'Exam duplicated', examId: dup._id };
+      const dup = new this.examModel({ ...rest, examKey });
+      await dup.save();
+      return { message: 'Exam duplicated', examId: dup._id };
+    } catch (err) {
+      this.logger.error('duplicateExam failed', err as Error);
+      throw err;
+    }
   }
 
   async scheduleExam(id: string, date: Date) {
-    const exam = await this.examModel.findById(id).exec();
-    if (!exam) throw new NotFoundException('Exam not found');
+    try {
+      const exam = await this.examModel.findById(id).exec();
+      if (!exam) throw new NotFoundException('Exam not found');
 
     exam.access = ExamAccessType.SCHEDULED;
     await exam.save();
 
     const delay = Math.max(date.getTime() - Date.now(), 0);
-    await this.scheduleQueue.add('open-exam', { examId: exam._id }, { delay });
-    return { message: 'Exam scheduled' };
+      await this.scheduleQueue.add('open-exam', { examId: exam._id }, { delay });
+      return { message: 'Exam scheduled' };
+    } catch (err) {
+      this.logger.error('scheduleExam failed', err as Error);
+      throw err;
+    }
   }
 
   // -- private event handlers --

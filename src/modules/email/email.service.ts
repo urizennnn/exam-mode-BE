@@ -1,7 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SendMailClient } from 'zeptomail';
-import { TracingService } from 'src/lib/tracing';
+import { DocentiLogger } from 'src/lib/logger';
 
 interface MailSendOptions {
   to: string | string[];
@@ -13,12 +13,13 @@ interface MailSendOptions {
 
 @Injectable()
 export class MailService {
-  private readonly logger = new Logger(MailService.name);
   private readonly defaultFrom: string;
   private readonly client: SendMailClient;
-  private readonly tracing = new TracingService();
 
-  constructor(private readonly cfg: ConfigService) {
+  constructor(
+    private readonly cfg: ConfigService,
+    private readonly logger: DocentiLogger,
+  ) {
     const url = this.cfg.get<string>('ZEPTO_URL') ?? 'api.zeptomail.com/';
     const token = this.cfg.get<string>('ZEPTO_TOKEN') ?? '';
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
@@ -53,7 +54,6 @@ export class MailService {
       this.logger.debug(`Email sent: ${JSON.stringify(response)}`);
     } catch (err: unknown) {
       this.logger.error(`Error sending mail: ${err as string}`);
-      this.tracing.captureException(err);
       if (err instanceof Error) {
         throw err;
       }

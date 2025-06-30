@@ -20,7 +20,6 @@ import { PdfQueueProducer } from 'src/lib/queue/queue.producer';
 import { Submissions, ParsedQuestion } from '../exam/interfaces/exam.interface';
 import { AwsService } from 'src/lib/aws/aws.service';
 import { DocentiLogger } from 'src/lib/logger';
-import { TracingService } from 'src/lib/tracing';
 
 interface JobInfo {
   id: string;
@@ -105,16 +104,20 @@ Rules:
     private readonly queue: Queue<ParseJobData | MarkJobData, string>,
     private readonly aws: AwsService,
     private readonly logger: DocentiLogger,
-    private readonly tracing: TracingService,
   ) {}
 
   async enqueueProcessPdf(file: Express.Multer.File, examKey: string) {
-    this.validateFile(file);
-    const tmpPath = `/tmp/${Date.now()}-${file.originalname}`;
-    await writeFile(tmpPath, file.buffer);
-    const job = await this.producer.enqueueProcess({ tmpPath, examKey });
-    this.logger.verbose(`Queued parse job ${job.id} for ${file.originalname}`);
-    return { jobId: job.id };
+    try {
+      this.validateFile(file);
+      const tmpPath = `/tmp/${Date.now()}-${file.originalname}`;
+      await writeFile(tmpPath, file.buffer);
+      const job = await this.producer.enqueueProcess({ tmpPath, examKey });
+      this.logger.verbose(`Queued parse job ${job.id} for ${file.originalname}`);
+      return { jobId: job.id };
+    } catch (e) {
+      this.logger.error(`Error queueing parse job: ${String(e)}`);
+      throw e;
+    }
   }
 
   async enqueueMarkPdf(
@@ -144,7 +147,6 @@ Rules:
       };
     } catch (e) {
       this.logger.error(`Error in enqueueMarkPdf: ${JSON.stringify(e)}`);
-      this.tracing.captureException(e);
       throw new BadRequestException(
         `Error processing PDF: ${e instanceof Error ? e.message : e}`,
       );
@@ -226,7 +228,6 @@ Rules:
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       this.logger.error(`Error in markPdfWorker: ${JSON.stringify(msg)}`);
-      this.tracing.captureException(e);
       throw new BadRequestException(`Error processing PDF: ${msg}`);
     }
   }
@@ -274,7 +275,6 @@ Rules:
       const err = e instanceof Error ? e : new Error(String(e));
       this.logger.error(`Error in performMark: ${JSON.stringify(err.message)}`);
       this.logger.error(`Error details: ${JSON.stringify(err.stack)}`);
-      this.tracing.captureException(e);
       throw new BadRequestException(`Error processing PDF: ${err.message}`);
     }
   }
@@ -406,7 +406,6 @@ Rules:
       return res.response.text();
     } catch (err) {
       this.logger.warn(`AI fail x${attempt}: ${(err as Error).message}`);
-      this.tracing.captureException(err);
       if (attempt >= 3) throw err;
       await sleep(500 * attempt);
       return this.aiGenerateWithRetry(msgs, attempt + 1);
