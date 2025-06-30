@@ -1,14 +1,19 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { v4 } from 'uuid';
+import { DocentiLogger } from 'src/lib/logger';
+import { TracingService } from 'src/lib/tracing';
 
 @Injectable()
 export class AwsService {
-  private readonly logger = new Logger(AwsService.name);
   private readonly s3Client: S3Client;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly logger: DocentiLogger,
+    private readonly tracing: TracingService,
+  ) {
     const region = this.config.getOrThrow<string>('AWS_REGION');
     const accessKeyId = this.config.getOrThrow<string>('AWS_ACCESS_KEY');
     const secretAccessKey = this.config.getOrThrow<string>(
@@ -47,6 +52,7 @@ export class AwsService {
       if (error instanceof Error) {
         this.logger.error(`Failed to upload file: ${error.message}`);
       }
+      this.tracing.captureException(error);
       return { secure_url: '' };
     }
   }

@@ -2,7 +2,6 @@ import {
   Injectable,
   UnauthorizedException,
   BadRequestException,
-  Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -11,13 +10,16 @@ import { JwtService } from '@nestjs/jwt';
 import { randomUUID } from 'crypto';
 import { User, UserDocument } from './models/user.model';
 import { CreateUserDto, LoginUserDto } from './dto/user.dto';
+import { DocentiLogger } from 'src/lib/logger';
+import { TracingService } from 'src/lib/tracing';
 
 @Injectable()
 export class UserService {
-  private readonly logger = new Logger(UserService.name);
   constructor(
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
     private readonly jwtService: JwtService,
+    private readonly logger: DocentiLogger,
+    private readonly tracing: TracingService,
   ) {}
 
   async signup(dto: CreateUserDto): Promise<{ message: string }> {

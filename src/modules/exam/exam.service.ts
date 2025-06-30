@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -28,33 +27,37 @@ import {
   STUDENT_IN_EVENT,
   STUDENT_OUT_EVENT,
 } from 'src/lib/events/events.constants';
+import { DocentiLogger } from 'src/lib/logger';
+import { TracingService } from 'src/lib/tracing';
 
 @Injectable()
 export class ExamService {
-  private readonly logger = new Logger(ExamService.name);
-
   constructor(
     @InjectModel(Exam.name) private readonly examModel: Model<ExamDocument>,
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
     @InjectQueue(EXAM_SCHEDULER_QUEUE) private readonly scheduleQueue: Queue,
     private readonly events: AppEvents,
     private readonly config: ConfigService,
+    private readonly logger: DocentiLogger,
+    private readonly tracing: TracingService,
   ) {
     this.events.on(STUDENT_IN_EVENT, (examId: string) => {
-      this.handleStudentIn(examId).catch((err: unknown) =>
+      this.handleStudentIn(examId).catch((err: unknown) => {
         this.logger.error(
           'handleStudentIn error',
           (err as Error).stack ?? String(err),
-        ),
-      );
+        );
+        this.tracing.captureException(err);
+      });
     });
     this.events.on(STUDENT_OUT_EVENT, (examId: string) => {
-      this.handleStudentOut(examId).catch((err: unknown) =>
+      this.handleStudentOut(examId).catch((err: unknown) => {
         this.logger.error(
           'handleStudentOut error',
           (err as Error).stack ?? String(err),
-        ),
-      );
+        );
+        this.tracing.captureException(err);
+      });
     });
   }
 

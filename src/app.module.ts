@@ -17,6 +17,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { QueueModule } from './lib/queue/queue.module';
 import { EventsModule } from './lib/events/events.module';
 import { AwsModule } from './lib/aws/aws.module';
+import { TracingModule } from './lib/tracing';
 import { RequestLoggerMiddleware } from './common';
 import { LoggerModule } from './lib/logger';
 
@@ -58,6 +59,7 @@ import { LoggerModule } from './lib/logger';
     EventsModule,
     AwsModule,
     LoggerModule,
+    TracingModule,
   ],
   controllers: [AppController],
   providers: [AppService],
