@@ -77,6 +77,13 @@ Provide these environment variables when running in production:
 - `DD_AGENT_HOST` – Datadog agent hostname
 - `DD_TRACE_AGENT_PORT` – Datadog agent port (defaults to `8126`)
 
+If you are not running a Datadog agent, provide these variables instead to send
+traces directly to Datadog:
+
+- `DD_API_KEY` – Datadog API key
+- `DD_SITE` – Datadog site domain (defaults to `datadoghq.com`)
+- `DD_TRACE_AGENT_URL` – optional custom trace intake URL
+
 Errors logged through the application logger are attached to the current trace span with full stack information.
 
 ## Deployment
