@@ -4145,21 +4145,6 @@ dc-polyfill@0.1.9:
   resolved "https://registry.yarnpkg.com/dc-polyfill/-/dc-polyfill-0.1.9.tgz#ee594f4366a6dcf006db1c1f9d3672f57a720856"
   integrity sha512-D5mJThEEk9hf+CJPwTf9JFsrWdlWp8Pccjxkhf7uUT/E/cU9Mx3ebWe2Bz2OawRmJ6WS9eaDPBkeBE4uOKq9uw==
 
-dd-trace@^5.56.0:
-  version "5.56.0"
-  resolved "https://registry.yarnpkg.com/dd-trace/-/dd-trace-5.56.0.tgz#2f599574d3ea4edd980e1d0cc24073d201e14472"
-  integrity sha512-1GiAh1UATmn8uZxk+nqZAdfJppiOq4kxJKiozMNvupffbcbAuDj5qnfYF9Hz3oqsk+Jtt2oheQeR05c4JRshXw==
-  dependencies:
-    "@datadog/libdatadog" "^0.6.0"
-    "@datadog/native-appsec" "8.5.2"
-    "@datadog/native-iast-taint-tracking" "4.0.0"
-    "@datadog/native-metrics" "^3.1.1"
-    "@datadog/pprof" "5.8.2"
-    "@datadog/sketches-js" "^2.1.1"
-    "@datadog/wasm-js-rewriter" "4.0.1"
-    "@isaacs/ttlcache" "^1.4.1"
-    "@opentelemetry/api" ">=1.0.0 <1.9.0"
-    "@opentelemetry/core" "^1.14.0"
     crypto-randomuuid "^1.0.0"
     dc-polyfill "0.1.9"
     ignore "^5.2.4"
