@@ -33,7 +33,6 @@ interface JobInfo {
   failedReason: string | null;
 }
 
-
 @Injectable()
 export class ProcessService {
   private readonly ai = new GoogleGenerativeAI(process.env.GEMINI_KEY!);
@@ -80,9 +79,11 @@ Rules:
   }
 
   private async safeExtract(buffer: Buffer): Promise<string> {
-    console.warn = this.filterWarn.bind(this);
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    (console as { warn: (...args: unknown[]) => void }).warn =
+      this.filterWarn.bind(this);
     try {
-      const { text } = await pdfparse(buffer);
+      const { text } = (await pdfparse(buffer)) as { text: string };
       if (text.trim()) return text;
     } catch {
       this.logger.warn('PDF parsing failed');
@@ -112,7 +113,9 @@ Rules:
       const tmpPath = `/tmp/${Date.now()}-${file.originalname}`;
       await writeFile(tmpPath, file.buffer);
       const job = await this.producer.enqueueProcess({ tmpPath, examKey });
-      this.logger.verbose(`Queued parse job ${job.id} for ${file.originalname}`);
+      this.logger.verbose(
+        `Queued parse job ${job.id} for ${file.originalname}`,
+      );
       return { jobId: job.id };
     } catch (e) {
       this.logger.error(`Error queueing parse job: ${String(e)}`);
@@ -140,7 +143,9 @@ Rules:
         studentAnswer,
         timeSpent,
       });
-      this.logger.verbose(`Queued mark job ${job.id} for exam ${examKey} – ${email}`);
+      this.logger.verbose(
+        `Queued mark job ${job.id} for exam ${examKey} – ${email}`,
+      );
       return {
         jobId: job.id,
         message: 'Exam marking job queued successfully',
@@ -199,7 +204,9 @@ Rules:
       try {
         parsed = JSON.parse(raw) as unknown;
       } catch {
-        this.logger.warn(`AI returned non-JSON output for ${tmpPath}; returning raw`);
+        this.logger.warn(
+          `AI returned non-JSON output for ${tmpPath}; returning raw`,
+        );
         parsed = raw;
       }
 
