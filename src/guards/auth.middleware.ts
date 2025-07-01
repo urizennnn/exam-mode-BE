@@ -22,6 +22,7 @@ export interface AuthenticatedRequest extends Request {
   user: {
     id: Types.ObjectId;
   };
+  cookies?: Record<string, string>;
 }
 
 @Injectable()
@@ -46,11 +47,13 @@ class JwtGuardUtils {
     return request;
   }
 
-  extractTokenFromHeader(request: Request): string | undefined {
+  extractToken(request: AuthenticatedRequest): string | undefined {
     const header = request.headers.authorization;
-    if (!header) return undefined;
-    const [type, token] = header.split(' ');
-    return type === 'Bearer' ? token : undefined;
+    if (header) {
+      const [type, token] = header.split(' ');
+      if (type === 'Bearer') return token;
+    }
+    return request.cookies?.token;
   }
 
   async verifyAndValidateToken(token: string): Promise<JwtPayload> {
@@ -97,7 +100,7 @@ export class JwtGuard extends AuthGuard('jwt') implements CanActivate {
     this.logger.log('Checking JWT guard');
     if (!this.utils.isAuthRequired(context)) return true;
     const request = this.utils.getRequest(context);
-    const token = this.utils.extractTokenFromHeader(request);
+    const token = this.utils.extractToken(request);
     if (!token) {
       throw new HttpException(
         'Authentication token is missing',
