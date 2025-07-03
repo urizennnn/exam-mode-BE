@@ -58,6 +58,13 @@ $ yarn run test:e2e
 $ yarn run test:cov
 ```
 
+## Redis configuration
+
+Set these environment variables to enable Upstash Redis:
+
+- `UPSTASH_REDIS_URL` – Upstash REST endpoint URL
+- `UPSTASH_REDIS_TOKEN` – Upstash REST token
+
 ## Email configuration
 
 Emails are sent using Zoho's ZeptoMail API. Configure these environment variables:

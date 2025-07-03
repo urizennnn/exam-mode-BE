@@ -17,7 +17,7 @@ export class AppController {
   }
 
   @Get()
-  getHello(): string {
+  async getHello(): Promise<string> {
     return this.appService.getHello();
   }
 
