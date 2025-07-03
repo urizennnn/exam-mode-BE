@@ -1,8 +1,18 @@
 import { Injectable } from '@nestjs/common';
+import { UpstashService } from './lib/redis';
 
 @Injectable()
 export class AppService {
-  getHello(): string {
+  constructor(private readonly redis: UpstashService) {}
+
+  async getHello(): Promise<string> {
+    if (this.redis.enabled) {
+      try {
+        await this.redis.set('lastHello', new Date().toISOString());
+      } catch {
+        // ignore connection errors
+      }
+    }
     return 'Hello World!';
   }
 
