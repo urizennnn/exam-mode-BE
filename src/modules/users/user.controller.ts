@@ -10,7 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { UserService } from './user.service';
 import { CreateUserDto, LoginUserDto } from './dto/user.dto';
 import { Request, Response } from 'express';
-import ms from 'ms';
+import * as ms from 'ms';
 import { NeedsAuth } from 'src/common';
 
 @Controller('users')
@@ -31,10 +31,11 @@ export class UserController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const result = await this.userService.login(dto);
-    const expiresIn = this.config.get<string>('JWT_EXPIRES_IN', '1d');
+    const expiresIn = this.config.get<ms.StringValue>('JWT_EXPIRES_IN', '1d');
     const maxAge = ms(expiresIn);
     res.cookie('token', result.access_token, {
       httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       maxAge,
     });

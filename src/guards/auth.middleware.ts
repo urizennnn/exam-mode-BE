@@ -6,10 +6,10 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { TokenExpiredError } from 'jsonwebtoken';
-import { Request } from 'express';
 import { JwtService } from '@nestjs/jwt';
 import { NEEDS_AUTH } from 'src/common';
 import { User } from 'src/modules/users/models/user.model';
@@ -22,7 +22,7 @@ export interface AuthenticatedRequest extends Request {
   user: {
     id: Types.ObjectId;
   };
-  cookies?: Record<string, string>;
+  cookies: Record<string, any>;
 }
 
 @Injectable()
@@ -53,7 +53,7 @@ class JwtGuardUtils {
       const [type, token] = header.split(' ');
       if (type === 'Bearer') return token;
     }
-    return request.cookies?.token;
+    return request.cookies.token as string;
   }
 
   async verifyAndValidateToken(token: string): Promise<JwtPayload> {

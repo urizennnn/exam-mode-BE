@@ -6,5 +6,6 @@ declare module 'express' {
     user?: {
       id: Types.ObjectId;
     };
+    cookies: Record<string, any>;
   }
 }

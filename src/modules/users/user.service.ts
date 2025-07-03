@@ -59,31 +59,31 @@ export class UserService {
       const user = await this.userModel.findOne({ email: dto.email }).exec();
       if (!user) throw new UnauthorizedException('Invalid credentials');
 
-    const passwordValid = await verify(user.password, dto.password);
-    if (!passwordValid) {
-      this.logger.warn(`Invalid password for ${dto.email}`);
-      throw new UnauthorizedException('Invalid credentials');
-    }
+      const passwordValid = await verify(user.password, dto.password);
+      if (!passwordValid) {
+        this.logger.warn(`Invalid password for ${dto.email}`);
+        throw new UnauthorizedException('Invalid credentials');
+      }
 
-    if (user.currentSessionId) {
-      this.logger.warn(`User already signed in: ${dto.email}`);
-      throw new BadRequestException(
-        'Already signed in from another device/session',
+      if (user.currentSessionId) {
+        this.logger.warn(`User already signed in: ${dto.email}`);
+        throw new BadRequestException(
+          'Already signed in from another device/session',
+        );
+      }
+
+      const sessionId = randomUUID();
+      await this.userModel.updateOne(
+        { _id: user._id },
+        { isSignedIn: true, currentSessionId: sessionId },
       );
-    }
 
-    const sessionId = randomUUID();
-    await this.userModel.updateOne(
-      { _id: user._id },
-      { isSignedIn: true, currentSessionId: sessionId },
-    );
-
-    const payload = {
-      sub: user._id.toString(),
-      email: user.email,
-      mode: 'lecturer' as const,
-      sessionId,
-    };
+      const payload = {
+        sub: user._id.toString(),
+        email: user.email,
+        mode: 'lecturer' as const,
+        sessionId,
+      };
       const token = await this.jwtService.signAsync(payload);
       this.logger.log(`User logged in: ${dto.email}`);
       return { access_token: token, name: user.name };
