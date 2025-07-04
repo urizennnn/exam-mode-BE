@@ -33,7 +33,7 @@ export class PdfQueueConsumer extends WorkerHost {
       switch (job.name as PdfJobs) {
         case PdfJobs.PROCESS:
           this.log.debug(`Parsing PDF for job ${job.id}`);
-          return this.processSvc.parsePdfWorker(job.data as ParseJobData);
+          return this.processSvc.parsePdfWorker(job as Job<ParseJobData>);
 
         case PdfJobs.MARK:
           this.log.debug(`Marking PDF for job ${job.id}`);
