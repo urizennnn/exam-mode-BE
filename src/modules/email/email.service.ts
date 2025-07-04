@@ -15,9 +15,10 @@ interface MailSendOptions {
 export class MailService {
   private readonly defaultFrom: string;
   private readonly client: SendMailClient;
-  private readonly logger: DocentiLogger;
-
-  constructor(private readonly cfg: ConfigService) {
+  constructor(
+    private readonly cfg: ConfigService,
+    private readonly logger: DocentiLogger,
+  ) {
     const url = this.cfg.get<string>('ZEPTO_URL') ?? 'api.zeptomail.com/';
     const token = this.cfg.get<string>('ZEPTO_TOKEN') ?? '';
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
