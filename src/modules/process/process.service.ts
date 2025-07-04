@@ -1,4 +1,4 @@
-import pdfparse from 'pdf-parse';
+import * as pdfparse from 'pdf-parse';
 import {
   BadRequestException,
   Injectable,
