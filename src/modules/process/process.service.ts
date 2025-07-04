@@ -112,27 +112,45 @@ Rules:
     }
   }
 
-  private async safeExtract(buffer: Buffer): Promise<string> {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    (console as { warn: (...args: unknown[]) => void }).warn =
-      this.filterWarn.bind(this);
-    try {
-      const { text } = (await pdfparse(buffer)) as { text: string };
-      if (text.trim()) return text;
-    } catch {
-      this.logger.warn('PDF parsing failed');
-    } finally {
-      console.warn = this.originalWarn;
+  private async extractTextFromPdf(buffer: Buffer): Promise<string> {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      (console as { warn: (...args: unknown[]) => void }).warn =
+        this.filterWarn.bind(this);
+      try {
+        const { text } = (await pdfparse(buffer)) as { text: string };
+        if (text.trim()) {
+          return text;
+        }
+      } catch (err) {
+        this.logger.warn(
+          `pdf-parse attempt ${attempt} failed: ${(err as Error).message}`,
+        );
+      } finally {
+        console.warn = this.originalWarn;
+      }
+      await sleep(300 * attempt);
     }
-    if (this.commandExists('pdftotext')) {
-      const stdout = execFileSync(
-        'pdftotext',
-        ['-q', '-enc', 'UTF-8', '-layout', '-', '-'],
-        { input: buffer },
-      );
-      return stdout.toString('utf8');
-    }
+
     this.ensurePdftotext();
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const stdout = execFileSync(
+          'pdftotext',
+          ['-q', '-enc', 'UTF-8', '-layout', '-', '-'],
+          { input: buffer },
+        );
+        const text = stdout.toString('utf8');
+        if (text.trim()) {
+          return text;
+        }
+      } catch (err) {
+        this.logger.warn(
+          `pdftotext attempt ${attempt} failed: ${(err as Error).message}`,
+        );
+      }
+      await sleep(300 * attempt);
+    }
     return '';
   }
 
@@ -227,7 +245,7 @@ Rules:
     this.logger.debug(`Processing parse worker for ${tmpPath}`);
     try {
       const buffer = await readFile(tmpPath);
-      const extracted = (await this.safeExtract(buffer)).trim();
+      const extracted = (await this.extractTextFromPdf(buffer)).trim();
       if (!extracted) throw new BadRequestException('No text found in PDF');
       const raw = await this.aiGenerateWithRetry([
         this.parsePrompt,
@@ -296,7 +314,7 @@ Rules:
       if (!exam) throw new NotFoundException('Exam not found');
       const studenName = exam.invites.find((i) => i.email === email)?.name;
       const buffer = await readFile(tmpPath);
-      const extracted = (await this.safeExtract(buffer)).trim();
+      const extracted = (await this.extractTextFromPdf(buffer)).trim();
       if (!extracted) throw new BadRequestException('No text found in PDF');
 
       const scoreText = await this.generateScoreText(extracted);
