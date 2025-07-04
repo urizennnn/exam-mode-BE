@@ -2,6 +2,7 @@ import pdfparse from 'pdf-parse';
 import {
   BadRequestException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 import { GenerativeModel, GoogleGenerativeAI } from '@google/generative-ai';
@@ -87,6 +88,30 @@ Rules:
     }
   }
 
+  private installPdftotext() {
+    try {
+      this.logger.warn('Attempting to install pdftotext via apt-get');
+      execFileSync('apt-get', ['update'], { stdio: 'ignore' });
+      execFileSync('apt-get', ['install', '-y', 'poppler-utils'], {
+        stdio: 'ignore',
+      });
+    } catch (e) {
+      this.logger.error(`Failed to install pdftotext: ${e}`);
+    }
+  }
+
+  private ensurePdftotext() {
+    if (!this.commandExists('pdftotext')) {
+      this.installPdftotext();
+      if (!this.commandExists('pdftotext')) {
+        this.logger.error('pdftotext command not found');
+        throw new InternalServerErrorException(
+          'pdftotext command not found. Install the "poppler-utils" package.',
+        );
+      }
+    }
+  }
+
   private async safeExtract(buffer: Buffer): Promise<string> {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     (console as { warn: (...args: unknown[]) => void }).warn =
@@ -107,8 +132,8 @@ Rules:
       );
       return stdout.toString('utf8');
     }
-    this.logger.error('pdftotext command not found');
-    throw new Error('pdftotext command not found');
+    this.ensurePdftotext();
+    return '';
   }
 
   constructor(
@@ -123,6 +148,7 @@ Rules:
   async enqueueProcessPdf(file: Express.Multer.File, examKey: string) {
     try {
       this.validateFile(file);
+      this.ensurePdftotext();
       const tmpPath = `/tmp/${Date.now()}-${file.originalname}`;
       await writeFile(tmpPath, file.buffer);
       const job = await this.producer.enqueueProcess({ tmpPath, examKey });
@@ -145,6 +171,7 @@ Rules:
   ) {
     try {
       this.validateFile(file);
+      this.ensurePdftotext();
       if (!(await this.examModel.exists({ examKey })))
         throw new BadRequestException('Exam not found');
       const tmpPath = `/tmp/${Date.now()}-${file.originalname}`;
