@@ -78,6 +78,15 @@ Rules:
     this.originalWarn(...msg);
   }
 
+  private commandExists(cmd: string): boolean {
+    try {
+      execFileSync('which', [cmd], { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private async safeExtract(buffer: Buffer): Promise<string> {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     (console as { warn: (...args: unknown[]) => void }).warn =
@@ -90,12 +99,16 @@ Rules:
     } finally {
       console.warn = this.originalWarn;
     }
-    const stdout = execFileSync(
-      'pdftotext',
-      ['-q', '-enc', 'UTF-8', '-layout', '-', '-'],
-      { input: buffer },
-    );
-    return stdout.toString('utf8');
+    if (this.commandExists('pdftotext')) {
+      const stdout = execFileSync(
+        'pdftotext',
+        ['-q', '-enc', 'UTF-8', '-layout', '-', '-'],
+        { input: buffer },
+      );
+      return stdout.toString('utf8');
+    }
+    this.logger.error('pdftotext command not found');
+    throw new Error('pdftotext command not found');
   }
 
   constructor(
@@ -182,7 +195,8 @@ Rules:
     return info;
   }
 
-  async parsePdfWorker({ tmpPath, examKey }: ParseJobData): Promise<unknown> {
+  async parsePdfWorker(job: Job<ParseJobData>): Promise<unknown> {
+    const { tmpPath, examKey } = job.data;
     this.logger.debug(`Processing parse worker for ${tmpPath}`);
     try {
       const buffer = await readFile(tmpPath);
@@ -228,7 +242,12 @@ Rules:
       this.logger.error(`Error in parsePdfWorker: ${JSON.stringify(msg)}`);
       throw e;
     } finally {
-      await unlink(tmpPath);
+      const attempts = job.opts.attempts ?? 1;
+      if (job.attemptsMade >= attempts - 1) {
+        await unlink(tmpPath);
+      } else {
+        this.logger.debug(`Retaining ${tmpPath} for retry`);
+      }
     }
   }
 
