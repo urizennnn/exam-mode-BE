@@ -223,6 +223,10 @@ Rules:
       }
 
       return parsed;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.error(`Error in parsePdfWorker: ${JSON.stringify(msg)}`);
+      throw e;
     } finally {
       await unlink(tmpPath);
     }
