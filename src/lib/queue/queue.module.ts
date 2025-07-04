@@ -13,7 +13,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
       inject: [ConfigService],
       useFactory: (cfg: ConfigService) => ({
         connection: {
-          url: cfg.get('UPSTASH_REDIS_URL'),
+          url: cfg.get('UPSTASH_REDIS_URL_TLS'),
           tls: true,
         },
       }),
