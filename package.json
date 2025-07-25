@@ -60,7 +60,8 @@
     "sprintf-js": "^1.1.3",
     "uuid": "^11.1.0",
     "winston": "^3.17.0",
-    "zeptomail": "^6.2.1"
+    "zeptomail": "^6.2.1",
+    "puppeteer": "^21.8.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",

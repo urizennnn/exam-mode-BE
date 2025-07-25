@@ -14,7 +14,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue, Job } from 'bullmq';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { generateTranscriptPdf } from 'src/utils/pdf-generator';
 import { PDF_QUEUE, ParseJobData, MarkJobData } from 'src/utils/constants';
 import { Exam, ExamDocument } from '../exam/models/exam.model';
 import { PdfQueueProducer } from 'src/lib/queue/queue.producer';
@@ -364,98 +364,43 @@ Rules:
   }
 
   private async createTranscriptPdf(
-    buffer: Buffer,
+    _buffer: Buffer,
     scoreText: string,
     examKey: string,
     email: string,
     studenName: string | undefined,
     timeSpent: number,
   ): Promise<Buffer> {
-    const doc = await PDFDocument.create();
-    const existingPdf = await PDFDocument.load(buffer);
-    const newPage = doc.addPage();
-    const { width, height } = newPage.getSize();
-    const boldFont = await doc.embedFont(StandardFonts.HelveticaBold);
-    const regularFont = await doc.embedFont(StandardFonts.Helvetica);
-    const fontSize = 12;
-    const headerFontSize = 14;
+    const html = `<!DOCTYPE html>
+      <html>
+      <head>
+      <meta charset="UTF-8" />
+      <style>
+        body { font-family: Arial, sans-serif; margin: 1cm; }
+        .header { display: flex; justify-content: space-between; align-items: center; }
+        .score { font-size: 20px; color: #1a4d99; }
+        .details { margin-top: 20px; }
+      </style>
+      </head>
+      <body>
+        <div class="header">
+          <h2>Exam-Module</h2>
+          <div class="score">Score: ${scoreText}</div>
+        </div>
+        <div class="details">
+          <p>Student: ${email} (${studenName})</p>
+          <p>Exam Key: ${examKey}</p>
+          <p>Time Submitted: ${new Date().toISOString().split('T')[0]}</p>
+          <p>Time Spent: ${timeSpent}s</p>
+        </div>
+      </body>
+      </html>`;
 
-    const logoPath = path.resolve('src', 'assets', 'images', 'logo.png');
-    const logoBytes = await readFile(logoPath);
-    const logoImg = await doc.embedPng(logoBytes);
-    const logoScale = 0.4;
-    newPage.drawImage(logoImg, {
-      x: 50,
-      y: height - logoImg.height * logoScale - 50,
-      width: logoImg.width * logoScale,
-      height: logoImg.height * logoScale,
-    });
-
-    const headerText = 'Exam-Module';
-    const headerWidth = boldFont.widthOfTextAtSize(headerText, headerFontSize);
-    newPage.drawText(headerText, {
-      x: (width - headerWidth) / 2,
-      y: height - 70,
-      size: headerFontSize,
-      font: boldFont,
-      color: rgb(0.1, 0.3, 0.6),
-    });
-
-    const scoreLabel = `Score: ${scoreText}`;
-    const scoreWidth = boldFont.widthOfTextAtSize(scoreLabel, headerFontSize);
-    newPage.drawText(scoreLabel, {
-      x: width - scoreWidth - 50,
-      y: height - 70,
-      size: headerFontSize,
-      font: boldFont,
-      color: rgb(0.1, 0.3, 0.6),
-    });
-
-    const centerDetails = [
-      `Student: ${email} (${studenName})`,
-      `Exam Key: ${examKey}`,
-      `Time Submitted: ${new Date().toISOString().split('T')[0]}`,
-      `Time Spent: ${timeSpent}s`,
-    ];
-    const yCenterStart = height - 100;
-    centerDetails.forEach((line, idx) => {
-      const textWidth = regularFont.widthOfTextAtSize(line, fontSize);
-      const x = (width - textWidth) / 2;
-      newPage.drawText(line, {
-        x,
-        y: yCenterStart - idx * 20,
-        size: fontSize,
-        font: regularFont,
-        color: rgb(0.2, 0.2, 0.2),
-      });
-    });
-
-    const dividerY = yCenterStart - centerDetails.length * 20 - 20;
-
-    const contentPages = await doc.embedPages(existingPdf.getPages());
-    const contentWidth = width - 100;
-    const firstY = dividerY - 40;
-
-    contentPages.forEach((page, idx) => {
-      let targetPage = newPage;
-      let yPos = firstY;
-      if (idx > 0) {
-        targetPage = doc.addPage();
-        const size = targetPage.getSize();
-        yPos = size.height - 50;
-      }
-
-      const scale = contentWidth / page.width;
-      const scaledHeight = page.height * scale;
-      targetPage.drawPage(page, {
-        x: 50,
-        y: yPos - scaledHeight,
-        width: contentWidth,
-        height: scaledHeight,
-      });
-    });
-
-    return Buffer.from(await doc.save());
+    const tmpPath = path.join(process.cwd(), `transcript-${Date.now()}.pdf`);
+    await generateTranscriptPdf(html, tmpPath);
+    const out = await readFile(tmpPath);
+    await unlink(tmpPath);
+    return out;
   }
 
   private async uploadTranscript(
