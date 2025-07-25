@@ -19,10 +19,14 @@ import { Invite } from './dto/invite-students.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Exam } from './models/exam.model';
 import { ExamControllerSwagger as docs } from './docs/swagger';
+import { DocentiLogger } from 'src/lib/logger';
 
 @Controller('exams')
 export class ExamController {
-  constructor(private readonly examService: ExamService) {}
+  constructor(
+    private readonly examService: ExamService,
+    private readonly logger: DocentiLogger,
+  ) {}
 
   @docs.searchExam
   @Get('search/:key')
@@ -110,7 +114,9 @@ export class ExamController {
     @Param('key') key: string,
     @Body() email: { email: string },
   ) {
-    console.log('Student login attempt with key:', key, 'and email:', email);
+    this.logger.log(
+      `Student login attempt: key="${key}", email="${email.email}"`,
+    );
     return this.examService.studentLogin(key, email.email);
   }
 
@@ -119,6 +125,9 @@ export class ExamController {
     @Param('key') key: string,
     @Body() body: { email: string },
   ) {
+    this.logger.log(
+      `Student logout: key="${key}", email="${body.email}"`,
+    );
     return this.examService.studentLogout(key, body.email);
   }
 
