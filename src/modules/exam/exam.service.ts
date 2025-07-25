@@ -283,9 +283,10 @@ export class ExamService {
     }
   }
 
-  async studentLogout(examKey: string, email: string) {
+  async studentLogout(examKey: string, email: string | unknown) {
     try {
-      this.logger.log(`Student logout: key="${examKey}", email="${email}"`);
+      const emailStr = String(email);
+      this.logger.log(`Student logout: key="${examKey}", email="${emailStr}"`);
       const exam = await this.examModel.findOne({ examKey }).exec();
       if (!exam) throw new NotFoundException('Exam not found');
 

@@ -326,6 +326,8 @@ Rules:
         email,
         studenName,
         timeSpent,
+        exam.question_text,
+        studentAnswer,
       );
       const transcriptUrl = await this.uploadTranscript(
         `transcript-${examKey}-${email}.pdf`,
@@ -370,7 +372,25 @@ Rules:
     email: string,
     studenName: string | undefined,
     timeSpent: number,
+    questions: ParsedQuestion[],
+    studentAnswer: string,
   ): Promise<Buffer> {
+    let parsed: any = [];
+    try {
+      parsed = JSON.parse(studentAnswer);
+    } catch {
+      parsed = [];
+    }
+
+    const answerBlocks = questions
+      .map((q, i) => {
+        const ans = Array.isArray(parsed)
+          ? parsed[i]?.answer ?? parsed[i]
+          : parsed[q.question] ?? '';
+        return `<div class="qa"><p class="question">${i + 1}. ${q.question}</p><p class="choice">Your answer: ${ans || 'N/A'}</p><p class="correct">Correct answer: ${q.answer ?? 'N/A'}</p></div>`;
+      })
+      .join('');
+
     const html = `<!DOCTYPE html>
       <html>
       <head>
@@ -378,21 +398,26 @@ Rules:
       <style>
         body { font-family: Arial, sans-serif; margin: 1cm; }
         .header { display: flex; justify-content: space-between; align-items: center; }
-        .score { font-size: 20px; color: #1a4d99; }
+        .score { font-size: 22px; color: #1a4d99; font-weight: bold; }
         .details { margin-top: 20px; }
+        .qa { margin-top: 15px; padding: 10px; border-bottom: 1px solid #ddd; }
+        .question { font-weight: 600; }
+        .choice { color: #d9534f; }
+        .correct { color: #5cb85c; }
       </style>
       </head>
       <body>
         <div class="header">
-          <h2>Exam-Module</h2>
+          <h2>Exam Transcript</h2>
           <div class="score">Score: ${scoreText}</div>
         </div>
         <div class="details">
-          <p>Student: ${email} (${studenName})</p>
-          <p>Exam Key: ${examKey}</p>
-          <p>Time Submitted: ${new Date().toISOString().split('T')[0]}</p>
-          <p>Time Spent: ${timeSpent}s</p>
+          <p><strong>Student:</strong> ${email} (${studenName ?? 'N/A'})</p>
+          <p><strong>Exam Key:</strong> ${examKey}</p>
+          <p><strong>Date:</strong> ${new Date().toISOString().split('T')[0]}</p>
+          <p><strong>Time Spent:</strong> ${timeSpent}s</p>
         </div>
+        ${answerBlocks}
       </body>
       </html>`;
 

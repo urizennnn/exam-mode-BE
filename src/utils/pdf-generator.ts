@@ -29,7 +29,11 @@ export async function renderHtml(options: TemplateOptions): Promise<string> {
 }
 
 export async function generateTranscriptPdf(html: string, outputPath: string): Promise<void> {
-  const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+  // Use the new headless implementation to avoid deprecation warnings
+  const browser = await puppeteer.launch({
+    headless: 'new',
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  });
   try {
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: 'networkidle0' });
