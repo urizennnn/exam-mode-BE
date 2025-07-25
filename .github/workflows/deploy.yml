@@ -30,14 +30,17 @@ jobs:
       - name: Determine inactive color
         id: color
         env:
-          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_KEY_B64: ${{ secrets.SSH_KEY_B64 }}
         run: |
-          printf '%s\n' "$SSH_KEY" > docenti_main.pem
+          # decode the base64‐encoded SSH key byte-for-byte
+          echo "$SSH_KEY_B64" | base64 -d > docenti_main.pem
           chmod 600 docenti_main.pem
+
           ACTIVE=$(ssh -i docenti_main.pem \
             -o StrictHostKeyChecking=no \
             ubuntu@ec2-18-204-84-112.compute-1.amazonaws.com \
             'docker ps --filter "label=color=blue" -q')
+
           if [ -n "$ACTIVE" ]; then
             echo "color=green" >> "$GITHUB_OUTPUT"
           else
@@ -62,17 +65,20 @@ jobs:
 
       - name: Deploy on server
         env:
-          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_KEY_B64: ${{ secrets.SSH_KEY_B64 }}
         run: |
           IMAGE=ghcr.io/${OWNER}/${IMAGE_NAME}:${{ steps.color.outputs.color }}
-          printf '%s\n' "$SSH_KEY" > docenti_main.pem
+          # decode and save key again for scp/ssh
+          echo "$SSH_KEY_B64" | base64 -d > docenti_main.pem
           chmod 600 docenti_main.pem
+
           scp -o StrictHostKeyChecking=no \
-              -i docenti_main.pem \
-              scripts/deploy.sh \
-              ubuntu@ec2-18-204-84-112.compute-1.amazonaws.com:deploy.sh
+            -i docenti_main.pem \
+            scripts/deploy.sh \
+            ubuntu@ec2-18-204-84-112.compute-1.amazonaws.com:deploy.sh
+
           ssh -o StrictHostKeyChecking=no \
-              -i docenti_main.pem \
-              ubuntu@ec2-18-204-84-112.compute-1.amazonaws.com \
-              "chmod +x deploy.sh && ./deploy.sh $IMAGE ${{ steps.color.outputs.color }}"
+            -i docenti_main.pem \
+            ubuntu@ec2-18-204-84-112.compute-1.amazonaws.com \
+            "chmod +x deploy.sh && ./deploy.sh $IMAGE ${{ steps.color.outputs.color }}"
 
