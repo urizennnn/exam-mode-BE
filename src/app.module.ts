@@ -22,6 +22,9 @@ import { AwsModule } from './lib/aws/aws.module';
 import { UpstashModule } from './lib/redis';
 import { RequestLoggerMiddleware } from './common';
 import { LoggerModule } from './lib/logger';
+import { ComplaintModule } from './modules/complaints/complaint.module';
+import { JwtGuard } from './guards/auth.middleware';
+import { RolesGuard } from './guards/roles.guard';
 
 @Module({
   imports: [
@@ -65,6 +68,7 @@ import { LoggerModule } from './lib/logger';
     ProcessModule,
     UserModule,
     ExamModule,
+    ComplaintModule,
     QueueModule,
     EventsModule,
     UpstashModule,
@@ -78,6 +82,8 @@ import { LoggerModule } from './lib/logger';
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
     },
+    JwtGuard,
+    RolesGuard,
   ],
 })
 export class AppModule implements NestModule {

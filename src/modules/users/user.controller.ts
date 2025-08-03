@@ -1,18 +1,24 @@
 import {
   Controller,
   Post,
+  Get,
+  Param,
   Body,
   Req,
   Res,
   BadRequestException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Types } from 'mongoose';
 import { UserService } from './user.service';
 import { CreateUserDto, LoginUserDto } from './dto/user.dto';
 import { Request, Response } from 'express';
 import * as ms from 'ms';
-import { NeedsAuth } from 'src/common';
+import { NeedsAuth, Roles } from 'src/common';
+import { UserRole } from './models/user.model';
+import { UserControllerSwagger as docs } from './docs/swagger';
 
+@docs.controller
 @Controller('users')
 export class UserController {
   constructor(
@@ -50,5 +56,21 @@ export class UserController {
     }
     res.clearCookie('token');
     return this.userService.logout(lectureId);
+  }
+
+  @NeedsAuth()
+  @Roles(UserRole.ADMIN)
+  @docs.list
+  @Get()
+  async getAllUsers() {
+    return this.userService.findAll();
+  }
+
+  @NeedsAuth()
+  @Roles(UserRole.ADMIN)
+  @docs.forceLogout
+  @Post(':id/logout')
+  async forceLogout(@Param('id') id: string) {
+    return this.userService.forceLogout(new Types.ObjectId(id));
   }
 }

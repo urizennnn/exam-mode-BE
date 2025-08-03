@@ -45,3 +45,4 @@ venv/
 
 # Ignore lock files
 *.lock
+*.patch

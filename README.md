@@ -132,3 +132,17 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+
+## Roles and Permissions
+
+The API now distinguishes between `admin` and `lecturer` accounts. Admins may invite members, list users, manage complaints, and force logout any account. Lecturers have access only to exam functionality and their own session management.
+
+## Endpoints
+
+- `POST /invites` — create a new admin or lecturer account (admin only)
+- `GET /users` — list all users (admin only)
+- `POST /users/{id}/logout` — force logout a user (admin only)
+- `POST /complaints` — submit a complaint
+- `GET /complaints` — list complaints (admin only)
+
+The invitation flow emails credentials to the new user. A valid email configuration is required for invites to succeed.

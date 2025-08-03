@@ -21,10 +21,10 @@ export class SessionCleanupService {
 
       const expiredUsers = await this.userModel
         .find({
-          currentSessionId: { $ne: null },
+          sessionId: { $ne: null },
           updatedAt: { $lt: threshold },
         })
-        .select('_id currentSessionId updatedAt');
+        .select('_id sessionId updatedAt');
 
       if (expiredUsers.length === 0) {
         this.log.log('No expired sessions found');
@@ -35,11 +35,11 @@ export class SessionCleanupService {
 
       const result = await this.userModel.updateMany(
         {
-          currentSessionId: { $ne: null },
+          sessionId: { $ne: null },
           updatedAt: { $lt: threshold },
         },
         {
-          $unset: { currentSessionId: 1 },
+          $unset: { sessionId: 1 },
           isSignedIn: false,
         },
       );

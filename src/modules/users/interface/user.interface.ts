@@ -5,4 +5,6 @@ export interface IUser extends BaseModel {
   password: string;
   name: string;
   isSignedIn?: boolean;
+  role: import('../models/user.model').UserRole;
+  sessionId?: string | null;
 }

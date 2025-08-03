@@ -8,9 +8,14 @@ import { Model, Types } from 'mongoose';
 import { verify } from 'argon2';
 import { JwtService } from '@nestjs/jwt';
 import { randomUUID } from 'crypto';
-import { User, UserDocument } from './models/user.model';
+import { User, UserDocument, UserRole } from './models/user.model';
 import { CreateUserDto, LoginUserDto } from './dto/user.dto';
 import { DocentiLogger } from 'src/lib/logger';
+import { MailService } from '../email/email.service';
+import { ConfigService } from '@nestjs/config';
+import { InviteUserDto } from './invite.dto';
+import { readFile } from 'node:fs/promises';
+import { renderHtml } from 'src/utils/pdf-generator';
 
 @Injectable()
 export class UserService {
@@ -18,6 +23,8 @@ export class UserService {
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
     private readonly jwtService: JwtService,
     private readonly logger: DocentiLogger,
+    private readonly mail: MailService,
+    private readonly config: ConfigService,
   ) {}
 
   async signup(dto: CreateUserDto): Promise<{ message: string }> {
@@ -51,6 +58,36 @@ export class UserService {
     }
   }
 
+  async invite(dto: InviteUserDto) {
+    const existing = await this.userModel.findOne({ email: dto.email }).exec();
+    if (existing) {
+      throw new BadRequestException('Email already registered');
+    }
+    const password = randomUUID().slice(0, 8);
+    const user = new this.userModel({
+      email: dto.email,
+      name: dto.name,
+      password,
+      role: dto.role,
+    });
+    await user.save();
+    const html = await renderHtml({
+      templatePath: this.config.get<string>('INVITE_TEMPLATE', 'src/modules/email/templates/invite.html'),
+      data: {
+        name: dto.name,
+        email: dto.email,
+        password,
+        adminUrl: this.config.get<string>('ADMIN_URL', '#'),
+      },
+    });
+    await this.mail.send({
+      to: dto.email,
+      subject: 'ExamHub invitation',
+      html,
+    });
+    return { message: 'Invitation sent' };
+  }
+
   async login(
     dto: LoginUserDto,
   ): Promise<{ access_token: string; name: string }> {
@@ -65,7 +102,7 @@ export class UserService {
         throw new UnauthorizedException('Invalid credentials');
       }
 
-      if (user.currentSessionId) {
+      if (user.sessionId) {
         this.logger.warn(`User already signed in: ${dto.email}`);
         throw new BadRequestException(
           'Already signed in from another device/session',
@@ -75,13 +112,13 @@ export class UserService {
       const sessionId = randomUUID();
       await this.userModel.updateOne(
         { _id: user._id },
-        { isSignedIn: true, currentSessionId: sessionId },
+        { isSignedIn: true, sessionId },
       );
 
       const payload = {
         sub: user._id.toString(),
         email: user.email,
-        mode: 'lecturer' as const,
+        role: user.role,
         sessionId,
       };
       const token = await this.jwtService.signAsync(payload);
@@ -98,7 +135,7 @@ export class UserService {
       this.logger.log(`Logging out user ${id.toString()}`);
       await this.userModel.updateOne(
         { _id: id },
-        { isSignedIn: false, currentSessionId: null },
+        { isSignedIn: false, sessionId: null },
       );
       this.logger.log(`User logged out: ${id.toString()}`);
       return { message: 'User logged out' };
@@ -106,5 +143,14 @@ export class UserService {
       this.logger.error('logout failed', err as Error);
       throw err;
     }
+  }
+
+  async findAll() {
+    return this.userModel.find().exec();
+  }
+
+  async forceLogout(id: Types.ObjectId) {
+    await this.userModel.updateOne({ _id: id }, { sessionId: null, isSignedIn: false });
+    return { message: 'User logged out' };
   }
 }

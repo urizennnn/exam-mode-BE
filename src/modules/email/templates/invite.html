@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>You've been invited to join ExamHub</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background: #f9f9f9;
+        color: #333;
+      }
+      .container {
+        max-width: 600px;
+        margin: 40px auto;
+        padding: 20px;
+        background: #fff;
+        border: 1px solid #ddd;
+      }
+      .btn {
+        display: inline-block;
+        padding: 10px 20px;
+        background: #2563eb;
+        color: #fff;
+        text-decoration: none;
+        border-radius: 4px;
+      }
+      .logo {
+        height: 40px;
+        margin-bottom: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <img src="cid:logo" alt="logo" class="logo" />
+      <h2>Hello {{name}},</h2>
+      <p>You have been invited to join ExamHub with the email <strong>{{email}}</strong>.</p>
+      <p>Your temporary password is <strong>{{password}}</strong>.</p>
+      <p>Please login using the button below:</p>
+      <p><a href="{{adminUrl}}" class="btn">Login</a></p>
+    </div>
+  </body>
+</html>

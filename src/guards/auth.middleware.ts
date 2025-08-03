@@ -11,16 +11,22 @@ import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { TokenExpiredError } from 'jsonwebtoken';
 import { JwtService } from '@nestjs/jwt';
-import { NEEDS_AUTH } from 'src/common';
+import { NEEDS_AUTH, Role } from 'src/common';
 import { User } from 'src/modules/users/models/user.model';
 import { Model, Types } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
 
-export type JwtPayload = Pick<User & Document, 'email'>;
+export interface JwtPayload {
+  email: string;
+  role: Role;
+  sessionId?: string;
+  sub?: string;
+}
 
 export interface AuthenticatedRequest extends Request {
   user: {
     id: Types.ObjectId;
+    role?: Role;
   };
   cookies: Record<string, any>;
 }
@@ -132,7 +138,7 @@ export class JwtGuard extends AuthGuard('jwt') implements CanActivate {
       throw new HttpException('User not found', HttpStatus.UNAUTHORIZED);
     }
 
-    request.user = { id: user._id };
+    request.user = { id: user._id, role: user.role };
     return true;
   }
 }

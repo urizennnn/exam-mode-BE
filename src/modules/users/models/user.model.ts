@@ -3,6 +3,11 @@ import { HydratedDocument } from 'mongoose';
 import { hash } from 'argon2';
 import { IUser } from '../interface';
 
+export enum UserRole {
+  ADMIN = 'admin',
+  LECTURER = 'lecturer',
+}
+
 @Schema({ collection: 'users', timestamps: true })
 export class User implements IUser {
   @Prop({ required: true, unique: true })
@@ -17,8 +22,15 @@ export class User implements IUser {
   @Prop({ default: false, type: Boolean })
   isSignedIn?: boolean;
 
+  @Prop({
+    required: true,
+    enum: UserRole,
+    default: UserRole.LECTURER,
+  })
+  role: UserRole;
+
   @Prop({ type: String, default: null })
-  currentSessionId?: string | null;
+  sessionId?: string | null;
 }
 
 export type UserDocument = HydratedDocument<User>;
