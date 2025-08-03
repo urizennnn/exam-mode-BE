@@ -14,5 +14,6 @@ import { ConfigService } from '@nestjs/config';
   ],
   controllers: [UserController, InviteController],
   providers: [UserService, SessionCleanupService, MailService, ConfigService],
+  exports: [MongooseModule],
 })
-export class UserModule { }
+export class UserModule {}
