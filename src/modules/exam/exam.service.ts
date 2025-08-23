@@ -177,36 +177,37 @@ export class ExamService {
       if (!exam.lecturer.equals(new Types.ObjectId(lecturer)))
         throw new BadRequestException('User does not own this exam');
 
-    let emails: string[] = [];
-    let names: string[] = [];
-    if (file) {
-      emails = returnEmails(file);
-      names = returnNames(file);
-    }
-    if (dto.emails) emails.push(...dto.emails);
-    if (dto.names) names.push(...dto.names);
+      let emails: string[] = [];
+      let names: string[] = [];
+      if (file) {
+        emails = returnEmails(file);
+        names = returnNames(file);
+      }
+      if (dto.emails) emails.push(...dto.emails);
+      if (dto.names) names.push(...dto.names);
 
-    const newInvites = emails.map((e, i) => ({
-      email: e.toLowerCase(),
-      name: names[i] || 'Student',
-    }));
+      const newInvites = emails.map((e, i) => ({
+        email: e.toLowerCase(),
+        name: names[i] || 'Student',
+      }));
 
-    newInvites.forEach((inv) => {
-      const exists = exam.invites.find((i) => i.email === inv.email);
-      if (exists) exists.name = inv.name;
-      else exam.invites.push(inv);
-    });
+      newInvites.forEach((inv) => {
+        const exists = exam.invites.find((i) => i.email === inv.email);
+        if (exists) exists.name = inv.name;
+        else exam.invites.push(inv);
+      });
       await exam.save();
 
-    const link =
-      exam.link || `${this.config.get('URL')}/student/${exam.id}?mode=student`;
-    await sendInvite(
-      newInvites,
-      exam.examName,
-      exam.examKey,
-      link,
-      new Date().toISOString(),
-    );
+      const link =
+        exam.link ||
+        `${this.config.get('URL')}/student/${exam.id}?mode=student`;
+      await sendInvite(
+        newInvites,
+        exam.examName,
+        exam.examKey,
+        link,
+        new Date().toISOString(),
+      );
 
       return { message: 'Invites sent' };
     } catch (err) {
@@ -223,20 +224,20 @@ export class ExamService {
       const exam = await this.examModel.findById(id).exec();
       if (!exam) throw new NotFoundException('Exam not found');
 
-    const email = dto.email.toLowerCase();
-    const sub = exam.submissions.find((s) => s.email === email);
-    if (sub) {
-      sub.transcript = dto.transcript;
-    } else {
-      exam.submissions.push({
-        email,
-        studentAnswer: '',
-        score: 0,
-        transcript: dto.transcript,
-        timeSubmitted: new Date().toISOString(),
-        timeSpent: 0,
-      });
-    }
+      const email = dto.email.toLowerCase();
+      const sub = exam.submissions.find((s) => s.email === email);
+      if (sub) {
+        sub.transcript = dto.transcript;
+      } else {
+        exam.submissions.push({
+          email,
+          studentAnswer: '',
+          score: 0,
+          transcript: dto.transcript,
+          timeSubmitted: new Date().toISOString(),
+          timeSpent: 0,
+        });
+      }
       await exam.save();
       return { message: 'Submission updated' };
     } catch (err) {
@@ -253,23 +254,27 @@ export class ExamService {
       const exam = await this.examModel.findOne({ examKey }).exec();
       if (!exam) throw new NotFoundException('Exam not found');
 
-    if (
-      exam.access !== ExamAccessType.OPEN &&
-      !exam.invites.some((i) => i.email === email.toLowerCase())
-    ) {
-      throw new BadRequestException('Student not invited for this exam');
-    }
+      if (
+        exam.invites.length > 0 &&
+        !exam.invites.some((i) => i.email === email.toLowerCase())
+      ) {
+        throw new BadRequestException('Student not invited for this exam');
+      }
 
-    // fire the "in" event
+      if (exam.invites.length === 0 && exam.access === ExamAccessType.CLOSED) {
+        throw new BadRequestException('This exam is closed');
+      }
+
+      // fire the "in" event
       this.events.emit(STUDENT_IN_EVENT, exam._id.toString());
 
-    const questions = Array.isArray(exam.question_text)
-      ? [...exam.question_text]
-      : [];
-    for (let i = questions.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [questions[i], questions[j]] = [questions[j], questions[i]];
-    }
+      const questions = Array.isArray(exam.question_text)
+        ? [...exam.question_text]
+        : [];
+      for (let i = questions.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [questions[i], questions[j]] = [questions[j], questions[i]];
+      }
 
       return {
         id: exam._id,
@@ -290,7 +295,7 @@ export class ExamService {
       const exam = await this.examModel.findOne({ examKey }).exec();
       if (!exam) throw new NotFoundException('Exam not found');
 
-    // fire the "out" event
+      // fire the "out" event
       this.events.emit(STUDENT_OUT_EVENT, exam._id.toString());
       return { message: 'Logout successful' };
     } catch (err) {
@@ -304,16 +309,16 @@ export class ExamService {
       const exam = await this.examModel.findById(id).exec();
       if (!exam) throw new NotFoundException('Exam not found');
 
-    const list = Array.isArray(email) ? email : [email];
-    for (const addr of list) {
-      const lowered = addr.toLowerCase();
-      const sub = exam.submissions.find((s) => s.email === lowered);
-      if (!sub)
-        throw new BadRequestException(`No submission for email ${addr}`);
-      if (!sub.transcript)
-        throw new BadRequestException(`Transcript not generated for ${addr}`);
-      await sendTranscript(addr, sub.transcript, exam.examName);
-    }
+      const list = Array.isArray(email) ? email : [email];
+      for (const addr of list) {
+        const lowered = addr.toLowerCase();
+        const sub = exam.submissions.find((s) => s.email === lowered);
+        if (!sub)
+          throw new BadRequestException(`No submission for email ${addr}`);
+        if (!sub.transcript)
+          throw new BadRequestException(`Transcript not generated for ${addr}`);
+        await sendTranscript(addr, sub.transcript, exam.examName);
+      }
 
       return {
         message: `Transcript sent to ${list.length} student${list.length > 1 ? 's' : ''} successfully`,
@@ -329,8 +334,8 @@ export class ExamService {
       const exam = await this.examModel.findById(id).lean().exec();
       if (!exam) throw new NotFoundException('Exam not found');
 
-    const { _id: _unused, ...rest } = exam as Record<string, unknown>;
-    void _unused;
+      const { _id: _unused, ...rest } = exam as Record<string, unknown>;
+      void _unused;
       const dup = new this.examModel({ ...rest, examKey });
       await dup.save();
       return { message: 'Exam duplicated', examId: dup._id };
@@ -345,11 +350,15 @@ export class ExamService {
       const exam = await this.examModel.findById(id).exec();
       if (!exam) throw new NotFoundException('Exam not found');
 
-    exam.access = ExamAccessType.SCHEDULED;
-    await exam.save();
+      exam.access = ExamAccessType.SCHEDULED;
+      await exam.save();
 
-    const delay = Math.max(date.getTime() - Date.now(), 0);
-      await this.scheduleQueue.add('open-exam', { examId: exam._id }, { delay });
+      const delay = Math.max(date.getTime() - Date.now(), 0);
+      await this.scheduleQueue.add(
+        'open-exam',
+        { examId: exam._id },
+        { delay },
+      );
       return { message: 'Exam scheduled' };
     } catch (err) {
       this.logger.error('scheduleExam failed', err as Error);
