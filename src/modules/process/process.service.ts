@@ -9,6 +9,7 @@ import { GenerativeModel, GoogleGenerativeAI } from '@google/generative-ai';
 import { execFileSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { writeFile, readFile, unlink } from 'node:fs/promises';
+import { Buffer } from 'node:buffer';
 import * as path from 'path';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -382,42 +383,481 @@ Rules:
       parsed = [];
     }
 
+    const normalise = (value: unknown): string =>
+      typeof value === 'string' ? value.trim().toLowerCase() : '';
+
+    const buildAliases = (value: unknown): Set<string> => {
+      const aliases = new Set<string>();
+      if (!value) return aliases;
+      const asString = String(value);
+      const cleaned = normalise(asString);
+      if (cleaned) aliases.add(cleaned);
+      const letterMatch = asString.match(/^\s*([A-Z])(?=[).\s])/i);
+      if (letterMatch) aliases.add(letterMatch[1].toLowerCase());
+      return aliases;
+    };
+
+    const asArray = Array.isArray(parsed) ? parsed : [];
+    const asRecord =
+      parsed && !Array.isArray(parsed) && typeof parsed === 'object'
+        ? (parsed as Record<string, unknown>)
+        : {};
+
+    const resolveAnswer = (index: number, questionText: string): string => {
+      const fromArray = asArray[index];
+      if (fromArray !== undefined) {
+        if (typeof fromArray === 'string') return fromArray;
+        if (
+          fromArray &&
+          typeof fromArray === 'object' &&
+          'answer' in fromArray &&
+          typeof (fromArray as { answer?: string }).answer === 'string'
+        )
+          return (fromArray as { answer?: string }).answer as string;
+        if (
+          fromArray &&
+          typeof fromArray === 'object' &&
+          'choice' in fromArray &&
+          typeof (fromArray as { choice?: string }).choice === 'string'
+        )
+          return (fromArray as { choice?: string }).choice as string;
+      }
+
+      const fromRecord = asRecord[questionText] ?? asRecord[String(index)] ?? null;
+      return typeof fromRecord === 'string' ? fromRecord : '';
+    };
+
+    const [scored, total] = scoreText
+      .split('/')
+      .map((v) => parseFloat(v.replace(/[^0-9.]/g, '')));
+    const percentage =
+      Number.isFinite(scored) && Number.isFinite(total) && total > 0
+        ? Math.round((scored / total) * 100)
+        : undefined;
+
+    const docentiSealSvg = `
+      <svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#1d4ed8" />
+            <stop offset="100%" stop-color="#0ea5e9" />
+          </linearGradient>
+        </defs>
+        <circle cx="60" cy="60" r="54" fill="white" stroke="url(#grad)" stroke-width="6" />
+        <text x="60" y="54" text-anchor="middle" font-size="26" font-family="'Segoe UI', sans-serif" font-weight="700" fill="#1d4ed8">DOCENTI</text>
+        <text x="60" y="78" text-anchor="middle" font-size="14" font-family="'Segoe UI', sans-serif" fill="#1f2937">Academic Board</text>
+        <path d="M35 88h50" stroke="#0ea5e9" stroke-width="3" stroke-linecap="round" />
+      </svg>`;
+
+    const docentiSeal = `data:image/svg+xml;base64,${Buffer.from(docentiSealSvg).toString('base64')}`;
+
     const answerBlocks = questions
       .map((q, i) => {
-        const ans = Array.isArray(parsed)
-          ? parsed[i]?.answer ?? parsed[i]
-          : parsed[q.question] ?? '';
-        return `<div class="qa"><p class="question">${i + 1}. ${q.question}</p><p class="choice">Your answer: ${ans || 'N/A'}</p><p class="correct">Correct answer: ${q.answer ?? 'N/A'}</p></div>`;
+        const userAnswer = resolveAnswer(i, q.question);
+        const correctAnswer = q.answer ?? '';
+        const userAliases = buildAliases(userAnswer);
+        const correctAliases = buildAliases(correctAnswer);
+        const optionList = (q.options ?? []).map((option, idx) => {
+          const optionAliases = buildAliases(option);
+          const isUserChoice = [...optionAliases].some((alias) =>
+            userAliases.has(alias),
+          );
+          const isCorrectChoice = [...optionAliases].some((alias) =>
+            correctAliases.has(alias),
+          );
+          const bullet = String.fromCharCode(65 + idx);
+          const classes = [
+            'option',
+            isCorrectChoice ? 'option--correct' : '',
+            isUserChoice ? 'option--selected' : '',
+          ]
+            .filter(Boolean)
+            .join(' ');
+          return `<li class="${classes}"><span class="option__bullet">${bullet}</span><span class="option__text">${option}</span></li>`;
+        });
+
+        const hasExactMatch =
+          correctAliases.size > 0 &&
+          [...correctAliases].some((alias) => userAliases.has(alias));
+
+        const answerSummary = q.options?.length
+          ? `
+            <div class="qa__answers">
+              <div class="qa__answer qa__answer--student">
+                <h4>Student Choice</h4>
+                <p>${userAnswer || 'N/A'}</p>
+              </div>
+              <div class="qa__answer qa__answer--correct">
+                <h4>Docenti Key</h4>
+                <p>${correctAnswer || 'N/A'}</p>
+              </div>
+            </div>
+          `
+          : `
+            <div class="qa__answers qa__answers--theory">
+              <div class="qa__answer qa__answer--student">
+                <h4>Student Response</h4>
+                <p>${userAnswer || 'N/A'}</p>
+              </div>
+              <div class="qa__answer qa__answer--correct">
+                <h4>Docenti Guidance</h4>
+                <p>${correctAnswer || 'N/A'}</p>
+              </div>
+            </div>
+          `;
+
+        return `
+          <section class="qa ${hasExactMatch ? 'qa--correct' : 'qa--incorrect'}">
+            <header class="qa__header">
+              <span class="qa__index">Question ${i + 1}</span>
+              <span class="qa__badge ${hasExactMatch ? 'qa__badge--success' : 'qa__badge--alert'}">
+                ${hasExactMatch ? 'Correct' : 'Review'}
+              </span>
+            </header>
+            <h3 class="qa__question">${q.question}</h3>
+            ${optionList.length ? `<ul class="qa__options">${optionList.join('')}</ul>` : ''}
+            ${answerSummary}
+          </section>
+        `;
       })
       .join('');
 
     const html = `<!DOCTYPE html>
-      <html>
+      <html lang="en">
       <head>
-      <meta charset="UTF-8" />
-      <style>
-        body { font-family: Arial, sans-serif; margin: 1cm; }
-        .header { display: flex; justify-content: space-between; align-items: center; }
-        .score { font-size: 22px; color: #1a4d99; font-weight: bold; }
-        .details { margin-top: 20px; }
-        .qa { margin-top: 15px; padding: 10px; border-bottom: 1px solid #ddd; }
-        .question { font-weight: 600; }
-        .choice { color: #d9534f; }
-        .correct { color: #5cb85c; }
-      </style>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <style>
+          :root {
+            color-scheme: light;
+            --primary: #1d4ed8;
+            --primary-soft: #dbeafe;
+            --success: #16a34a;
+            --alert: #f97316;
+            --text: #0f172a;
+            --muted: #475569;
+            --border: #e2e8f0;
+            --bg: #f8fafc;
+          }
+
+          * {
+            box-sizing: border-box;
+          }
+
+          body {
+            margin: 0;
+            padding: 32px;
+            font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+          }
+
+          .page {
+            background: white;
+            border-radius: 18px;
+            padding: 32px;
+            box-shadow: 0 20px 40px rgba(15, 23, 42, 0.07);
+            border: 1px solid var(--border);
+          }
+
+          .page__header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 24px;
+          }
+
+          .brand {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+          }
+
+          .brand__seal {
+            width: 80px;
+            height: 80px;
+          }
+
+          .brand__title {
+            margin: 0;
+            font-size: 32px;
+            line-height: 1.2;
+            font-weight: 700;
+            color: var(--primary);
+          }
+
+          .brand__subtitle {
+            margin: 4px 0 0;
+            color: var(--muted);
+            font-size: 15px;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+          }
+
+          .scorecard {
+            padding: 20px 24px;
+            border-radius: 16px;
+            background: var(--primary-soft);
+            color: var(--primary);
+            min-width: 180px;
+          }
+
+          .scorecard__label {
+            margin: 0;
+            font-size: 13px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+          }
+
+          .scorecard__value {
+            margin: 8px 0 0;
+            font-size: 28px;
+            font-weight: 700;
+          }
+
+          .scorecard__progress {
+            margin-top: 12px;
+            width: 100%;
+            height: 8px;
+            border-radius: 999px;
+            background: rgba(29, 78, 216, 0.18);
+            overflow: hidden;
+          }
+
+          .scorecard__progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #1d4ed8, #0ea5e9);
+            width: ${percentage ? `${Math.min(percentage, 100)}%` : '0%'};
+          }
+
+          .meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin: 28px 0 36px;
+            padding: 24px;
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            background: rgba(241, 245, 249, 0.6);
+          }
+
+          .meta__item {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+          }
+
+          .meta__label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--muted);
+          }
+
+          .meta__value {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text);
+          }
+
+          .qa + .qa {
+            margin-top: 20px;
+          }
+
+          .qa {
+            padding: 24px;
+            border-radius: 18px;
+            border: 1px solid var(--border);
+            background: white;
+            box-shadow: 0 12px 24px rgba(15, 23, 42, 0.05);
+          }
+
+          .qa--correct {
+            border-color: rgba(22, 163, 74, 0.4);
+          }
+
+          .qa--incorrect {
+            border-color: rgba(249, 115, 22, 0.35);
+          }
+
+          .qa__header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+          }
+
+          .qa__index {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+          }
+
+          .qa__badge {
+            padding: 4px 12px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+          }
+
+          .qa__badge--success {
+            background: rgba(22, 163, 74, 0.12);
+            color: var(--success);
+          }
+
+          .qa__badge--alert {
+            background: rgba(249, 115, 22, 0.12);
+            color: var(--alert);
+          }
+
+          .qa__question {
+            margin: 0 0 18px;
+            font-size: 18px;
+            line-height: 1.5;
+            color: var(--text);
+          }
+
+          .qa__options {
+            list-style: none;
+            margin: 0 0 18px;
+            padding: 0;
+            display: grid;
+            gap: 10px;
+          }
+
+          .option {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 12px 14px;
+            border-radius: 12px;
+            border: 1px solid transparent;
+            background: rgba(226, 232, 240, 0.45);
+          }
+
+          .option__bullet {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            font-weight: 600;
+            background: rgba(15, 23, 42, 0.06);
+            color: var(--muted);
+          }
+
+          .option__text {
+            flex: 1;
+            font-size: 15px;
+            color: var(--text);
+          }
+
+          .option--selected {
+            border-color: rgba(29, 78, 216, 0.35);
+            background: rgba(219, 234, 254, 0.8);
+          }
+
+          .option--correct {
+            border-color: rgba(22, 163, 74, 0.4);
+            background: rgba(220, 252, 231, 0.6);
+          }
+
+          .qa__answers {
+            display: grid;
+            gap: 16px;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          }
+
+          .qa__answers--theory {
+            grid-template-columns: 1fr;
+          }
+
+          .qa__answer {
+            border-radius: 14px;
+            border: 1px solid var(--border);
+            padding: 16px;
+            background: rgba(248, 250, 252, 0.9);
+          }
+
+          .qa__answer h4 {
+            margin: 0 0 8px;
+            font-size: 14px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted);
+          }
+
+          .qa__answer p {
+            margin: 0;
+            color: var(--text);
+            font-size: 15px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+          }
+
+          footer {
+            margin-top: 36px;
+            text-align: center;
+            font-size: 13px;
+            color: var(--muted);
+          }
+        </style>
       </head>
       <body>
-        <div class="header">
-          <h2>Exam Transcript</h2>
-          <div class="score">Score: ${scoreText}</div>
-        </div>
-        <div class="details">
-          <p><strong>Student:</strong> ${email} (${studenName ?? 'N/A'})</p>
-          <p><strong>Exam Key:</strong> ${examKey}</p>
-          <p><strong>Date:</strong> ${new Date().toISOString().split('T')[0]}</p>
-          <p><strong>Time Spent:</strong> ${timeSpent}s</p>
-        </div>
-        ${answerBlocks}
+        <main class="page">
+          <section class="page__header">
+            <div class="brand">
+              <img class="brand__seal" src="${docentiSeal}" alt="Docenti Academy Seal" />
+              <div>
+                <h1 class="brand__title">Docenti Academy</h1>
+                <p class="brand__subtitle">Scholastic Evaluation Transcript</p>
+              </div>
+            </div>
+            <aside class="scorecard">
+              <p class="scorecard__label">Final Score</p>
+              <p class="scorecard__value">${scoreText}</p>
+              <div class="scorecard__progress">
+                <span class="scorecard__progress-bar"></span>
+              </div>
+            </aside>
+          </section>
+
+          <section class="meta">
+            <article class="meta__item">
+              <span class="meta__label">Student Name</span>
+              <span class="meta__value">${studenName ?? 'Docenti Student'}</span>
+            </article>
+            <article class="meta__item">
+              <span class="meta__label">Student Email</span>
+              <span class="meta__value">${email}</span>
+            </article>
+            <article class="meta__item">
+              <span class="meta__label">Exam Key</span>
+              <span class="meta__value">${examKey}</span>
+            </article>
+            <article class="meta__item">
+              <span class="meta__label">Date Issued</span>
+              <span class="meta__value">${new Date().toLocaleDateString('en-GB')}</span>
+            </article>
+            <article class="meta__item">
+              <span class="meta__label">Time Spent</span>
+              <span class="meta__value">${timeSpent ?? 0} seconds</span>
+            </article>
+            ${percentage !== undefined
+              ? `<article class="meta__item"><span class="meta__label">Performance</span><span class="meta__value">${percentage}%</span></article>`
+              : ''}
+          </section>
+
+          ${answerBlocks}
+
+          <footer>
+            This transcript was auto-generated by Docenti for academic record keeping.
+          </footer>
+        </main>
       </body>
       </html>`;
 
