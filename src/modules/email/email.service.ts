@@ -50,8 +50,7 @@ export class MailService {
     try {
       const to = Array.isArray(options.to) ? options.to : [options.to];
 
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
-      const response = await (this.client as unknown as any).sendMail({
+      const response = await this.client.sendMail({
         from: {
           address: options.from ?? this.defaultFrom,
           name: options.from ?? this.defaultFrom,
@@ -68,12 +67,11 @@ export class MailService {
       });
       logger.debug(`Email sent: ${JSON.stringify(response)}`);
     } catch (err: unknown) {
-      const errToLog = err instanceof Error ? err : new Error(String(err));
-      logger.error('Error sending mail', errToLog);
-      if (err instanceof Error) {
-        throw err;
-      }
-      throw errToLog;
+      logger.error('Error sending mail', err);
+      // if (err instanceof Error) {
+      //   throw err;
+      // }
+      // throw errToLog;
     }
   }
 }
