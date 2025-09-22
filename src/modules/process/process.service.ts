@@ -1178,7 +1178,13 @@ Rules:
       for (const [key, value] of Object.entries(obj)) {
         if (['answers', 'artifact', 'source', 'raw'].includes(key)) continue;
         const numericIndex = /^\d+$/.test(key) ? Number(key) : undefined;
-        handleValue(value, numericIndex, key);
+        const normalizedIndex =
+          numericIndex !== undefined
+            ? numericIndex > 0
+              ? numericIndex - 1
+              : 0
+            : undefined;
+        handleValue(value, normalizedIndex, key);
       }
     } else {
       handleValue(source);
