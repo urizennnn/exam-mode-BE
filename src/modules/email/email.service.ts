@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SendMailClient } from 'zeptomail';
 import { DocentiLogger } from 'src/lib/logger';
@@ -11,12 +11,20 @@ interface MailSendOptions {
   from?: string;
 }
 
+type LoggerLike = {
+  debug(message: string, ...args: unknown[]): void;
+  error(message: string, ...args: unknown[]): void;
+};
+
 @Injectable()
 export class MailService {
   private readonly defaultFrom: string;
   private readonly client: SendMailClient;
-  private readonly logger: DocentiLogger;
-  constructor(private readonly cfg: ConfigService) {
+  private readonly logger: LoggerLike;
+  constructor(
+    private readonly cfg: ConfigService,
+    @Optional() logger?: DocentiLogger,
+  ) {
     const url = this.cfg.get<string>('ZEPTO_URL') ?? 'api.zeptomail.com/';
     const token = this.cfg.get<string>('ZEPTO_TOKEN') ?? '';
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
@@ -26,6 +34,14 @@ export class MailService {
     }) as unknown as SendMailClient;
     this.defaultFrom =
       this.cfg.get<string>('ZEPTO_FROM') ?? 'no-reply@example.com';
+    this.logger =
+      logger ??
+      ({
+        debug: (message: string, ...args: unknown[]) =>
+          console.debug('[MailService]', message, ...args),
+        error: (message: string, ...args: unknown[]) =>
+          console.error('[MailService]', message, ...args),
+      } satisfies LoggerLike);
   }
 
   async send(options: MailSendOptions) {
