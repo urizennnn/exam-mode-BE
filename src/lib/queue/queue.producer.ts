@@ -19,7 +19,9 @@ export class PdfQueueProducer {
 
   enqueueProcess(data: ParseJobData) {
     try {
-      this.log.verbose(`Queueing parse job for ${data.examKey || data.tmpPath}`);
+      this.log.verbose(
+        `Queueing parse job for ${data.examKey || data.tmpPath}`,
+      );
       return this.queue.add(PdfJobs.PROCESS, data, {
         attempts: 3,
         backoff: {

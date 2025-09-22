@@ -12,7 +12,6 @@ export class SessionCleanupService {
     private readonly log: DocentiLogger,
   ) {}
 
-
   @Cron(CronExpression.EVERY_HOUR)
   async handleCron() {
     try {

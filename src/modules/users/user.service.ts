@@ -72,7 +72,10 @@ export class UserService {
     });
     await user.save();
     const html = await renderHtml({
-      templatePath: this.config.get<string>('INVITE_TEMPLATE', 'src/modules/email/templates/invite.html'),
+      templatePath: this.config.get<string>(
+        'INVITE_TEMPLATE',
+        'src/modules/email/templates/invite.html',
+      ),
       data: {
         name: dto.name,
         email: dto.email,
@@ -150,7 +153,10 @@ export class UserService {
   }
 
   async forceLogout(id: Types.ObjectId) {
-    await this.userModel.updateOne({ _id: id }, { sessionId: null, isSignedIn: false });
+    await this.userModel.updateOne(
+      { _id: id },
+      { sessionId: null, isSignedIn: false },
+    );
     return { message: 'User logged out' };
   }
 }

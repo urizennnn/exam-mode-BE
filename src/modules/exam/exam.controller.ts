@@ -125,9 +125,7 @@ export class ExamController {
     @Param('key') key: string,
     @Body() body: { email: string },
   ) {
-    this.logger.log(
-      `Student logout: key="${key}", email="${body.email}"`,
-    );
+    this.logger.log(`Student logout: key="${key}", email="${body.email}"`);
     return this.examService.studentLogout(key, body.email);
   }
 

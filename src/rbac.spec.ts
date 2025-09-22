@@ -4,7 +4,11 @@ import request from 'supertest';
 import { MongooseModule, getModelToken } from '@nestjs/mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { UserModule } from './modules/users/user.module';
-import { User, UserDocument, UserRole } from './modules/users/models/user.model';
+import {
+  User,
+  UserDocument,
+  UserRole,
+} from './modules/users/models/user.model';
 import { MailService } from './modules/email/email.service';
 import { JwtService } from '@nestjs/jwt';
 import { ComplaintModule } from './modules/complaints/complaint.module';
@@ -32,7 +36,9 @@ describe.skip('RBAC e2e', () => {
     app = moduleFixture.createNestApplication();
     await app.init();
 
-    userModel = moduleFixture.get<Model<UserDocument>>(getModelToken(User.name));
+    userModel = moduleFixture.get<Model<UserDocument>>(
+      getModelToken(User.name),
+    );
     jwt = moduleFixture.get(JwtService);
 
     await userModel.create({
@@ -55,7 +61,11 @@ describe.skip('RBAC e2e', () => {
   });
 
   function loginPayload(user: UserDocument) {
-    return jwt.sign({ email: user.email, role: user.role, sub: user._id.toString() });
+    return jwt.sign({
+      email: user.email,
+      role: user.role,
+      sub: user._id.toString(),
+    });
   }
 
   it('prevents lecturer from listing users', async () => {

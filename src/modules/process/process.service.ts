@@ -35,6 +35,14 @@ interface JobInfo {
   failedReason: string | null;
 }
 
+interface StudentAnswerEntry {
+  index: number;
+  question?: string;
+  answer?: string;
+  choice?: string;
+  raw?: unknown;
+}
+
 @Injectable()
 export class ProcessService {
   private readonly ai = new GoogleGenerativeAI(process.env.GEMINI_KEY!);
@@ -71,6 +79,26 @@ Rules:
 - Remove duplicate options if shown in the source.
 - If no questions are present, return an empty array.
   Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
+
+  private readonly studentAnswersPrompt =
+    `You are analyzing a student's completed exam submission. You will receive two inputs:
+1. A JSON array of the exam questions (with types, options, and correct answers).
+2. Raw text extracted from the student's submitted PDF.
+
+For each question, identify the student's response and return ONLY a JSON array. Each array element must be an object with:
+{
+  "index": <number matching the question order, zero-based>,
+  "answer": "<student's answer text>",
+  "choice": "<option letter or exact option text if available>",
+  "question": "<question text>"
+}
+
+Rules:
+- Preserve the student's wording when possible.
+- Include both the option letter and text when you can determine them.
+- For theory questions, summarise the written response; use an empty string if none is found.
+- If unsure about a response, leave "answer" empty rather than guessing.
+- Do not include any commentary outside the JSON array.`.trim();
 
   private filterWarn(...msg: unknown[]) {
     const m = String(msg[0]);
@@ -318,6 +346,31 @@ Rules:
       const extracted = (await this.extractTextFromPdf(buffer)).trim();
       if (!extracted) throw new BadRequestException('No text found in PDF');
 
+      let studentAnswers = this.parseStudentAnswerString(
+        studentAnswer,
+        exam.question_text,
+      );
+
+      const hasMissingAnswers = studentAnswers.some((entry) => {
+        const answerText = entry.answer?.trim() ?? '';
+        const choiceText = entry.choice?.trim() ?? '';
+        return !answerText && !choiceText;
+      });
+
+      const requiresDerivation =
+        (!studentAnswers.length || hasMissingAnswers) && extracted.length > 0;
+
+      if (requiresDerivation) {
+        const derived = await this.deriveStudentAnswersFromText(
+          extracted,
+          exam.question_text,
+        );
+        studentAnswers = this.mergeStudentAnswerEntries(
+          studentAnswers,
+          derived,
+        );
+      }
+
       const scoreText = await this.generateScoreText(extracted);
 
       const pdfBytes = await this.createTranscriptPdf(
@@ -328,6 +381,7 @@ Rules:
         studenName,
         timeSpent,
         exam.question_text,
+        studentAnswers,
         studentAnswer,
       );
       const transcriptUrl = await this.uploadTranscript(
@@ -374,21 +428,23 @@ Rules:
     studenName: string | undefined,
     timeSpent: number,
     questions: ParsedQuestion[],
-    studentAnswer: string,
+    studentAnswers: StudentAnswerEntry[],
+    studentAnswerArtifact?: string,
   ): Promise<Buffer> {
-    let parsed: any = [];
-    try {
-      parsed = JSON.parse(studentAnswer);
-    } catch {
-      parsed = [];
-    }
-
     const normalise = (value: unknown): string =>
       typeof value === 'string' ? value.trim().toLowerCase() : '';
 
     const buildAliases = (value: unknown): Set<string> => {
       const aliases = new Set<string>();
-      if (!value) return aliases;
+      if (
+        value === null ||
+        value === undefined ||
+        (typeof value !== 'string' &&
+          typeof value !== 'number' &&
+          typeof value !== 'boolean')
+      )
+        return aliases;
+
       const asString = String(value);
       const cleaned = normalise(asString);
       if (cleaned) aliases.add(cleaned);
@@ -397,34 +453,75 @@ Rules:
       return aliases;
     };
 
-    const asArray = Array.isArray(parsed) ? parsed : [];
-    const asRecord =
-      parsed && !Array.isArray(parsed) && typeof parsed === 'object'
-        ? (parsed as Record<string, unknown>)
-        : {};
+    const mergedAnswers = this.mergeStudentAnswerEntries(studentAnswers, []);
+    const answerByIndex = new Map<number, StudentAnswerEntry>();
+    const answerByQuestion = new Map<string, StudentAnswerEntry>();
 
-    const resolveAnswer = (index: number, questionText: string): string => {
-      const fromArray = asArray[index];
-      if (fromArray !== undefined) {
-        if (typeof fromArray === 'string') return fromArray;
-        if (
-          fromArray &&
-          typeof fromArray === 'object' &&
-          'answer' in fromArray &&
-          typeof (fromArray as { answer?: string }).answer === 'string'
-        )
-          return (fromArray as { answer?: string }).answer as string;
-        if (
-          fromArray &&
-          typeof fromArray === 'object' &&
-          'choice' in fromArray &&
-          typeof (fromArray as { choice?: string }).choice === 'string'
-        )
-          return (fromArray as { choice?: string }).choice as string;
+    const registerAnswer = (entry: StudentAnswerEntry) => {
+      const normalized = this.normaliseAnswerEntry(entry);
+      if (normalized.index >= 0) {
+        const existing = answerByIndex.get(normalized.index);
+        const next =
+          existing !== undefined
+            ? this.mergeSingleAnswer(existing, normalized)
+            : normalized;
+        answerByIndex.set(normalized.index, next);
+      }
+      if (normalized.question) {
+        const key = normalized.question.trim();
+        const existing = answerByQuestion.get(key);
+        const next =
+          existing !== undefined
+            ? this.mergeSingleAnswer(existing, normalized)
+            : normalized;
+        answerByQuestion.set(key, next);
+      }
+    };
+
+    mergedAnswers.forEach(registerAnswer);
+
+    const resolveAnswer = (
+      index: number,
+      question: ParsedQuestion,
+    ): { display: string; match: string } => {
+      const entry =
+        answerByIndex.get(index) ??
+        answerByQuestion.get(question.question.trim());
+      if (!entry) return { display: '', match: '' };
+
+      const choice = entry.choice?.trim() ?? '';
+      let answer = entry.answer?.trim() ?? '';
+
+      if (!answer && typeof entry.raw === 'string') {
+        answer = entry.raw.trim();
       }
 
-      const fromRecord = asRecord[questionText] ?? asRecord[String(index)] ?? null;
-      return typeof fromRecord === 'string' ? fromRecord : '';
+      const isLetterChoice = /^[A-Z]$/i.test(choice);
+      if (
+        !answer &&
+        isLetterChoice &&
+        Array.isArray(question.options) &&
+        question.options.length
+      ) {
+        const optionIndex = choice.toUpperCase().charCodeAt(0) - 65;
+        if (optionIndex >= 0 && optionIndex < question.options.length) {
+          answer = question.options[optionIndex];
+        }
+      }
+
+      const match = answer || choice || '';
+      let display = answer;
+
+      if (!display && choice) {
+        display = choice;
+      } else if (display && choice && isLetterChoice) {
+        display = `${choice.toUpperCase()}. ${display}`;
+      }
+
+      return {
+        display: display.trim(),
+        match: match.trim(),
+      };
     };
 
     const [scored, total] = scoreText
@@ -453,9 +550,9 @@ Rules:
 
     const answerBlocks = questions
       .map((q, i) => {
-        const userAnswer = resolveAnswer(i, q.question);
+        const { display: studentDisplay, match } = resolveAnswer(i, q);
         const correctAnswer = q.answer ?? '';
-        const userAliases = buildAliases(userAnswer);
+        const userAliases = buildAliases(match || studentDisplay);
         const correctAliases = buildAliases(correctAnswer);
         const optionList = (q.options ?? []).map((option, idx) => {
           const optionAliases = buildAliases(option);
@@ -482,27 +579,27 @@ Rules:
 
         const answerSummary = q.options?.length
           ? `
-            <div class="qa__answers">
-              <div class="qa__answer qa__answer--student">
-                <h4>Student Choice</h4>
-                <p>${userAnswer || 'N/A'}</p>
-              </div>
-              <div class="qa__answer qa__answer--correct">
-                <h4>Docenti Key</h4>
-                <p>${correctAnswer || 'N/A'}</p>
-              </div>
+              <div class="qa__answers">
+                <div class="qa__answer qa__answer--student">
+                  <h4>Student Choice</h4>
+                <p>${studentDisplay || 'N/A'}</p>
+                </div>
+                <div class="qa__answer qa__answer--correct">
+                  <h4>Docenti Key</h4>
+                  <p>${correctAnswer || 'N/A'}</p>
+                </div>
             </div>
           `
           : `
-            <div class="qa__answers qa__answers--theory">
-              <div class="qa__answer qa__answer--student">
-                <h4>Student Response</h4>
-                <p>${userAnswer || 'N/A'}</p>
-              </div>
-              <div class="qa__answer qa__answer--correct">
-                <h4>Docenti Guidance</h4>
-                <p>${correctAnswer || 'N/A'}</p>
-              </div>
+              <div class="qa__answers qa__answers--theory">
+                <div class="qa__answer qa__answer--student">
+                  <h4>Student Response</h4>
+                <p>${studentDisplay || 'N/A'}</p>
+                </div>
+                <div class="qa__answer qa__answer--correct">
+                  <h4>Docenti Guidance</h4>
+                  <p>${correctAnswer || 'N/A'}</p>
+                </div>
             </div>
           `;
 
@@ -847,9 +944,16 @@ Rules:
               <span class="meta__label">Time Spent</span>
               <span class="meta__value">${timeSpent ?? 0} seconds</span>
             </article>
-            ${percentage !== undefined
-              ? `<article class="meta__item"><span class="meta__label">Performance</span><span class="meta__value">${percentage}%</span></article>`
-              : ''}
+            ${
+              studentAnswerArtifact
+                ? `<article class="meta__item"><span class="meta__label">Submission PDF</span><span class="meta__value"><a href="${studentAnswerArtifact}" target="_blank" rel="noopener">Download</a></span></article>`
+                : ''
+            }
+            ${
+              percentage !== undefined
+                ? `<article class="meta__item"><span class="meta__label">Performance</span><span class="meta__value">${percentage}%</span></article>`
+                : ''
+            }
           </section>
 
           ${answerBlocks}
@@ -866,6 +970,335 @@ Rules:
     const out = await readFile(tmpPath);
     await unlink(tmpPath);
     return out;
+  }
+
+  private parseStudentAnswerString(
+    raw: string,
+    questions: ParsedQuestion[],
+  ): StudentAnswerEntry[] {
+    if (typeof raw !== 'string' || !raw.trim()) return [];
+    try {
+      const parsed = JSON.parse(raw.trim()) as unknown;
+      const entries = this.normaliseStudentAnswerData(parsed, questions);
+      return this.mergeStudentAnswerEntries(entries, []);
+    } catch {
+      return [];
+    }
+  }
+
+  private async deriveStudentAnswersFromText(
+    extracted: string,
+    questions: ParsedQuestion[],
+  ): Promise<StudentAnswerEntry[]> {
+    if (!extracted?.trim() || !questions.length) return [];
+    try {
+      const payload = [
+        this.studentAnswersPrompt,
+        `QUESTIONS:\n${JSON.stringify(questions, null, 2)}\n\nSTUDENT_SUBMISSION:\n${extracted}`,
+      ];
+      const response = await this.aiGenerateWithRetry(payload);
+      const cleaned = this.cleanAiJsonOutput(response);
+      const parsed = JSON.parse(cleaned) as unknown;
+      const entries = this.normaliseStudentAnswerData(parsed, questions);
+      return this.mergeStudentAnswerEntries(entries, []);
+    } catch (err) {
+      this.logger.warn(
+        `deriveStudentAnswersFromText failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return [];
+    }
+  }
+
+  private cleanAiJsonOutput(raw: string): string {
+    return raw
+      .replace(/```json/gi, '')
+      .replace(/```/g, '')
+      .trim()
+      .split('\n')
+      .filter((line) => line.trim() !== ',')
+      .join('\n');
+  }
+
+  private normaliseStudentAnswerData(
+    source: unknown,
+    questions: ParsedQuestion[],
+  ): StudentAnswerEntry[] {
+    const entries: StudentAnswerEntry[] = [];
+    if (source === null || source === undefined) return entries;
+
+    const questionIndex = new Map<string, number>();
+    questions.forEach((q, idx) => {
+      questionIndex.set(q.question.trim(), idx);
+    });
+
+    const pushEntry = (
+      candidate: Partial<StudentAnswerEntry>,
+      fallbackIndex?: number,
+      key?: string,
+      raw?: unknown,
+    ) => {
+      let index = Number.isFinite(candidate.index)
+        ? Number(candidate.index)
+        : Number.parseInt(String(candidate.index ?? ''), 10);
+      if (!Number.isFinite(index) || index < 0) {
+        if (fallbackIndex !== undefined && fallbackIndex >= 0) {
+          index = fallbackIndex;
+        } else if (key) {
+          const mapped = questionIndex.get(key.trim());
+          index = mapped !== undefined ? mapped : -1;
+        } else {
+          index = -1;
+        }
+      } else {
+        index = Math.trunc(index);
+      }
+
+      const inferredQuestion =
+        typeof candidate.question === 'string'
+          ? candidate.question.trim()
+          : key && isNaN(Number(key))
+            ? key.trim()
+            : undefined;
+
+      const answer = this.extractAnswerString(candidate.answer);
+      const choice = this.extractAnswerString(candidate.choice);
+
+      entries.push({
+        index,
+        question: inferredQuestion,
+        answer,
+        choice,
+        raw: raw ?? candidate.raw ?? candidate.answer ?? candidate.choice,
+      });
+    };
+
+    const handleValue = (
+      value: unknown,
+      fallbackIndex?: number,
+      key?: string,
+    ) => {
+      if (value === null || value === undefined) return;
+
+      if (
+        typeof value === 'string' ||
+        typeof value === 'number' ||
+        typeof value === 'boolean'
+      ) {
+        pushEntry(
+          {
+            index: fallbackIndex,
+            question: key,
+            answer: this.extractAnswerString(value),
+          },
+          fallbackIndex,
+          key,
+          value,
+        );
+        return;
+      }
+
+      if (Array.isArray(value)) {
+        value.forEach((item, idx) =>
+          handleValue(item, fallbackIndex ?? idx, key),
+        );
+        return;
+      }
+
+      if (typeof value === 'object') {
+        const obj = value as Record<string, unknown>;
+        const candidate: Partial<StudentAnswerEntry> = {};
+
+        const indexCandidate = [
+          obj.index,
+          obj.idx,
+          obj.position,
+          obj.questionIndex,
+        ].find((v) => typeof v === 'number');
+        if (typeof indexCandidate === 'number') {
+          candidate.index = indexCandidate;
+        }
+
+        const questionCandidate = [
+          obj.question,
+          obj.prompt,
+          obj.title,
+          obj.q,
+        ].find((v) => typeof v === 'string');
+        if (typeof questionCandidate === 'string') {
+          candidate.question = questionCandidate;
+        }
+
+        const answerCandidate =
+          obj.answer ??
+          obj.response ??
+          obj.value ??
+          obj.text ??
+          obj.studentAnswer ??
+          obj.student_response ??
+          obj.selectedAnswer ??
+          obj.selected_option ??
+          obj.answer_text;
+        candidate.answer = this.extractAnswerString(answerCandidate);
+
+        const choiceCandidate =
+          obj.choice ??
+          obj.selected ??
+          obj.selectedOption ??
+          obj.option ??
+          obj.option_text ??
+          obj.optionLetter ??
+          obj.answer_letter ??
+          obj.letter ??
+          obj.selected_option_letter;
+        candidate.choice = this.extractAnswerString(choiceCandidate);
+
+        if (
+          candidate.choice === undefined &&
+          typeof obj.optionIndex === 'number'
+        ) {
+          const idx = Math.trunc(obj.optionIndex);
+          if (idx >= 0 && idx < 26) {
+            candidate.choice = String.fromCharCode(65 + idx);
+          }
+        }
+
+        pushEntry(candidate, fallbackIndex, key, value);
+      }
+    };
+
+    if (Array.isArray(source)) {
+      source.forEach((item, idx) => handleValue(item, idx));
+    } else if (typeof source === 'object') {
+      const obj = source as Record<string, unknown>;
+      if (Array.isArray(obj.answers)) {
+        obj.answers.forEach((item, idx) => handleValue(item, idx));
+      }
+      for (const [key, value] of Object.entries(obj)) {
+        if (['answers', 'artifact', 'source', 'raw'].includes(key)) continue;
+        const numericIndex = /^\d+$/.test(key) ? Number(key) : undefined;
+        handleValue(value, numericIndex, key);
+      }
+    } else {
+      handleValue(source);
+    }
+
+    return entries;
+  }
+
+  private extractAnswerString(value: unknown): string | undefined {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      return trimmed.length ? trimmed : undefined;
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      return String(value);
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const resolved = this.extractAnswerString(item);
+        if (resolved) return resolved;
+      }
+    }
+    return undefined;
+  }
+
+  private normaliseAnswerEntry(entry: StudentAnswerEntry): StudentAnswerEntry {
+    const idx = Number.isFinite(entry.index)
+      ? Number(entry.index)
+      : Number.parseInt(String(entry.index ?? ''), 10);
+    const index = Number.isFinite(idx) && idx >= 0 ? Math.trunc(idx) : -1;
+
+    const question =
+      typeof entry.question === 'string' && entry.question.trim().length
+        ? entry.question.trim()
+        : undefined;
+
+    const answer =
+      typeof entry.answer === 'string' && entry.answer.trim().length
+        ? entry.answer.trim()
+        : undefined;
+
+    const choice =
+      typeof entry.choice === 'string' && entry.choice.trim().length
+        ? entry.choice.trim()
+        : undefined;
+
+    return {
+      index,
+      question,
+      answer,
+      choice,
+      raw: entry.raw,
+    };
+  }
+
+  private pickAnswerField(
+    primary?: string,
+    fallback?: string,
+  ): string | undefined {
+    const primaryTrimmed = primary?.trim();
+    if (primaryTrimmed) return primaryTrimmed;
+    const fallbackTrimmed = fallback?.trim();
+    return fallbackTrimmed || undefined;
+  }
+
+  private mergeSingleAnswer(
+    base: StudentAnswerEntry,
+    incoming: StudentAnswerEntry,
+  ): StudentAnswerEntry {
+    return {
+      index: incoming.index >= 0 ? incoming.index : base.index,
+      question: incoming.question ?? base.question,
+      answer: this.pickAnswerField(incoming.answer, base.answer),
+      choice: this.pickAnswerField(incoming.choice, base.choice),
+      raw: incoming.raw ?? base.raw,
+    };
+  }
+
+  private mergeStudentAnswerEntries(
+    primary: StudentAnswerEntry[],
+    secondary: StudentAnswerEntry[],
+  ): StudentAnswerEntry[] {
+    const answerByIndex = new Map<number, StudentAnswerEntry>();
+    const answerByQuestion = new Map<string, StudentAnswerEntry>();
+
+    const ingest = (entry: StudentAnswerEntry) => {
+      const normalized = this.normaliseAnswerEntry(entry);
+      if (normalized.index >= 0) {
+        const existing = answerByIndex.get(normalized.index);
+        const next =
+          existing !== undefined
+            ? this.mergeSingleAnswer(existing, normalized)
+            : normalized;
+        answerByIndex.set(normalized.index, next);
+      }
+      if (normalized.question) {
+        const key = normalized.question.trim();
+        const existing = answerByQuestion.get(key);
+        const next =
+          existing !== undefined
+            ? this.mergeSingleAnswer(existing, normalized)
+            : normalized;
+        answerByQuestion.set(key, next);
+      }
+    };
+
+    [...primary, ...secondary].forEach(ingest);
+
+    const merged = Array.from(answerByIndex.values());
+
+    for (const entry of answerByQuestion.values()) {
+      if (entry.index < 0) merged.push(entry);
+    }
+
+    return merged.sort((a, b) => {
+      if (a.index === b.index) return 0;
+      if (a.index < 0) return 1;
+      if (b.index < 0) return -1;
+      return a.index - b.index;
+    });
   }
 
   private async uploadTranscript(

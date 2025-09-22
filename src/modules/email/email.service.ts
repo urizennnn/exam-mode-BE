@@ -45,6 +45,8 @@ export class MailService {
   }
 
   async send(options: MailSendOptions) {
+    const logger = this.logger ?? console;
+
     try {
       const to = Array.isArray(options.to) ? options.to : [options.to];
 
@@ -64,13 +66,14 @@ export class MailService {
         textbody: options.text ?? '',
         htmlbody: options.html,
       });
-      this.logger.debug(`Email sent: ${JSON.stringify(response)}`);
+      logger.debug(`Email sent: ${JSON.stringify(response)}`);
     } catch (err: unknown) {
-      this.logger.error(`Error sending mail: ${err as string}`);
+      const errToLog = err instanceof Error ? err : new Error(String(err));
+      logger.error('Error sending mail', errToLog);
       if (err instanceof Error) {
         throw err;
       }
-      throw new Error('Failed to send mail');
+      throw errToLog;
     }
   }
 }

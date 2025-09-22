@@ -17,7 +17,9 @@ function compileTemplate(template: string, data: Record<string, any>): string {
 
 export async function renderHtml(options: TemplateOptions): Promise<string> {
   if (options.html) {
-    return options.data ? compileTemplate(options.html, options.data) : options.html;
+    return options.data
+      ? compileTemplate(options.html, options.data)
+      : options.html;
   }
 
   if (options.templatePath) {
@@ -28,7 +30,10 @@ export async function renderHtml(options: TemplateOptions): Promise<string> {
   throw new Error('Either html or templatePath must be provided');
 }
 
-export async function generateTranscriptPdf(html: string, outputPath: string): Promise<void> {
+export async function generateTranscriptPdf(
+  html: string,
+  outputPath: string,
+): Promise<void> {
   // Use the new headless implementation to avoid deprecation warnings
   const browser = await puppeteer.launch({
     headless: 'new',

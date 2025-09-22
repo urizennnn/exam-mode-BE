@@ -7,7 +7,8 @@ import { CreateComplaintDto } from './complaint.dto';
 @Injectable()
 export class ComplaintService {
   constructor(
-    @InjectModel(Complaint.name) private readonly model: Model<ComplaintDocument>,
+    @InjectModel(Complaint.name)
+    private readonly model: Model<ComplaintDocument>,
   ) {}
 
   create(dto: CreateComplaintDto) {
