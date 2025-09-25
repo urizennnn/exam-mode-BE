@@ -53,7 +53,6 @@ RUN corepack enable && corepack prepare yarn@1.22.22 --activate \
 
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/init.sh ./init.sh
-COPY --from=build /app/.env.example ./.env.example
 
 EXPOSE 8080
 CMD ["node", "dist/main"]
