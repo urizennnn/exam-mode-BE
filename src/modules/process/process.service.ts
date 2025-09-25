@@ -361,14 +361,34 @@ Rules:
         (!studentAnswers.length || hasMissingAnswers) && extracted.length > 0;
 
       if (requiresDerivation) {
-        const derived = await this.deriveStudentAnswersFromText(
+        const deterministic = this.extractStudentAnswersFromPdfText(
           extracted,
           exam.question_text,
         );
-        studentAnswers = this.mergeStudentAnswerEntries(
-          studentAnswers,
-          derived,
-        );
+
+        if (deterministic.length) {
+          studentAnswers = this.mergeStudentAnswerEntries(
+            studentAnswers,
+            deterministic,
+          );
+        }
+
+        const missingAfterDeterministic = studentAnswers.some((entry) => {
+          const answerText = entry.answer?.trim() ?? '';
+          const choiceText = entry.choice?.trim() ?? '';
+          return !answerText && !choiceText;
+        });
+
+        if (missingAfterDeterministic) {
+          const derived = await this.deriveStudentAnswersFromText(
+            extracted,
+            exam.question_text,
+          );
+          studentAnswers = this.mergeStudentAnswerEntries(
+            studentAnswers,
+            derived,
+          );
+        }
       }
 
       const scoreText = await this.generateScoreText(extracted);
@@ -1009,6 +1029,387 @@ Rules:
       );
       return [];
     }
+  }
+
+  private extractStudentAnswersFromPdfText(
+    extracted: string,
+    questions: ParsedQuestion[],
+  ): StudentAnswerEntry[] {
+    if (!extracted?.trim() || !questions.length) return [];
+
+    const lines = extracted
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length);
+
+    if (!lines.length) return [];
+
+    const blocks = new Map<number, string[]>();
+    const questionKeys = questions.map((question) => {
+      const normalised = this.normaliseTextForMatch(question.question ?? '');
+      if (!normalised) return '';
+      return normalised
+        .split(' ')
+        .slice(0, 10)
+        .join(' ');
+    });
+
+    let currentIndex = -1;
+
+    const ensureBlock = (idx: number) => {
+      if (idx < 0 || idx >= questions.length) return;
+      if (!blocks.has(idx)) {
+        blocks.set(idx, []);
+      }
+      currentIndex = idx;
+    };
+
+    for (const originalLine of lines) {
+      const numberMatch = originalLine.match(
+        /^(?:question\s*)?(\d{1,3})(?:\s*(?:[\).:-]|$))/i,
+      );
+      if (numberMatch) {
+        const idx = parseInt(numberMatch[1], 10) - 1;
+        if (Number.isFinite(idx) && idx >= 0 && idx < questions.length) {
+          ensureBlock(idx);
+          const remainder = originalLine.slice(numberMatch[0].length).trim();
+          if (remainder) blocks.get(idx)!.push(remainder);
+          continue;
+        }
+      }
+
+      const normalisedLine = this.normaliseTextForMatch(originalLine);
+      let matchedByContent = -1;
+      for (let qIdx = 0; qIdx < questionKeys.length; qIdx++) {
+        const key = questionKeys[qIdx];
+        if (!key) continue;
+        if (normalisedLine.includes(key)) {
+          matchedByContent = qIdx;
+          break;
+        }
+      }
+
+      if (matchedByContent >= 0) {
+        ensureBlock(matchedByContent);
+        continue;
+      }
+
+      if (currentIndex >= 0) {
+        blocks.get(currentIndex)!.push(originalLine);
+      }
+    }
+
+    if (!blocks.size) return [];
+
+    const entries: StudentAnswerEntry[] = [];
+    for (const [idx, blockLines] of blocks.entries()) {
+      const question = questions[idx];
+      if (!question) continue;
+      const entry = this.extractAnswerFromBlock(idx, blockLines, question);
+      if (entry) entries.push(entry);
+    }
+
+    return entries;
+  }
+
+  private extractAnswerFromBlock(
+    index: number,
+    lines: string[],
+    question: ParsedQuestion,
+  ): StudentAnswerEntry | undefined {
+    const cleanedLines = lines
+      .map((line) => line.trim())
+      .filter((line) => line.length);
+
+    if (!cleanedLines.length) return undefined;
+
+    let answer: string | undefined;
+    let choice: string | undefined;
+
+    const stopLabelRegex =
+      /^(?:question\s*\d+|options?:?|docenti|correct answer|score)/i;
+    const labelOnlyRegex =
+      /^(?:answer|response|student answer|student response|choice)\s*[:\-]?\s*$/i;
+    const answerLinePatterns = [
+      /\b(?:student|your)\s*(?:answer|response)\s*[:\-]\s*(.+)$/i,
+      /\b(?:selected|chosen)\s*(?:option|answer)\s*[:\-]\s*(.+)$/i,
+      /\banswer\s*[:\-]\s*(.+)$/i,
+    ];
+
+    const candidates = cleanedLines.map((line, idx) => ({ line, idx }));
+
+    for (const { line, idx } of candidates) {
+      for (const pattern of answerLinePatterns) {
+        const match = line.match(pattern);
+        if (!match) continue;
+
+        const captured = match[1]?.trim();
+        if (captured) {
+          ({ answer, choice } = this.normaliseAnswerAgainstOptions(
+            captured,
+            question,
+          ));
+          if (!answer) answer = captured;
+        } else {
+          const buffer: string[] = [];
+          for (let lookahead = idx + 1; lookahead < cleanedLines.length; lookahead++) {
+            const nextLine = cleanedLines[lookahead];
+            if (!nextLine) break;
+            if (stopLabelRegex.test(nextLine) || labelOnlyRegex.test(nextLine)) break;
+            buffer.push(nextLine);
+            if (question.type === 'multiple-choice') break;
+          }
+          if (buffer.length) {
+            const combined = buffer.join(' ').trim();
+            ({ answer, choice } = this.normaliseAnswerAgainstOptions(
+              combined,
+              question,
+            ));
+            if (!answer) answer = combined;
+          }
+        }
+
+        break;
+      }
+
+      if (answer || choice) break;
+
+      const marked = this.detectMarkedOption(line, question);
+      if (marked) {
+        answer = answer ?? marked.answer;
+        choice = choice ?? marked.choice;
+        if (answer || choice) break;
+      }
+    }
+
+    if (!answer && !choice) {
+      for (const { line, idx } of candidates) {
+        if (idx === 0) continue;
+        const standalone = this.extractStandaloneAnswer(line, question);
+        if (standalone) {
+          answer = answer ?? standalone.answer;
+          choice = choice ?? standalone.choice;
+          if (answer || choice) break;
+        }
+      }
+    }
+
+    if (!answer && question.type === 'theory') {
+      const theoryResponse = cleanedLines
+        .slice(1)
+        .filter(
+          (line) => !stopLabelRegex.test(line) && !labelOnlyRegex.test(line),
+        )
+        .join(' ')
+        .trim();
+      if (theoryResponse) {
+        answer = theoryResponse;
+      }
+    }
+
+    if (!answer && choice) {
+      answer = this.resolveOptionByLetter(choice, question) ?? answer;
+    }
+
+    if (!answer && !choice) return undefined;
+
+    return {
+      index,
+      question: question.question,
+      answer: answer?.trim() || undefined,
+      choice: choice?.trim().toUpperCase() || undefined,
+      raw: cleanedLines.join('\n'),
+    };
+  }
+
+  private resolveOptionByLetter(
+    letter: string | undefined,
+    question: ParsedQuestion,
+  ): string | undefined {
+    if (!letter || !question.options?.length) return undefined;
+    const normalisedLetter = letter.trim().toUpperCase();
+    if (!/^[A-Z]$/.test(normalisedLetter)) return undefined;
+    const idx = normalisedLetter.charCodeAt(0) - 65;
+    if (idx < 0 || idx >= question.options.length) return undefined;
+    return question.options[idx];
+  }
+
+  private normaliseAnswerAgainstOptions(
+    candidate: string,
+    question: ParsedQuestion,
+  ): { answer?: string; choice?: string } {
+    const trimmed = candidate.trim();
+    if (!trimmed) return {};
+
+    const normalized = this.normaliseTextForMatch(trimmed);
+    if (!normalized) return { answer: trimmed };
+
+    const letterOnly = normalized.match(/^([a-z])$/);
+    if (letterOnly) {
+      const letter = letterOnly[1].toUpperCase();
+      const option = this.resolveOptionByLetter(letter, question);
+      return {
+        answer: option ?? trimmed,
+        choice: letter,
+      };
+    }
+
+    const optionLetterKeyword = normalized.match(/option\s*([a-z])/);
+    if (optionLetterKeyword) {
+      const letter = optionLetterKeyword[1].toUpperCase();
+      const option = this.resolveOptionByLetter(letter, question);
+      if (option) {
+        return {
+          answer: option,
+          choice: letter,
+        };
+      }
+    }
+
+    const explicitLetter = trimmed.match(/^([A-Z])(?:[).:\-]|\s)+(.*)$/);
+    if (explicitLetter) {
+      const letter = explicitLetter[1].toUpperCase();
+      const option = this.resolveOptionByLetter(letter, question);
+      if (option) {
+        return {
+          answer: option,
+          choice: letter,
+        };
+      }
+    }
+
+    if (question.options?.length) {
+      for (let idx = 0; idx < question.options.length; idx++) {
+        const option = question.options[idx];
+        const normalisedOption = this.normaliseTextForMatch(option);
+        if (!normalisedOption) continue;
+        if (
+          normalized === normalisedOption ||
+          normalisedOption.includes(normalized) ||
+          normalized.includes(normalisedOption)
+        ) {
+          const letter = String.fromCharCode(65 + idx);
+          return {
+            answer: option,
+            choice: letter,
+          };
+        }
+      }
+    }
+
+    return { answer: trimmed };
+  }
+
+  private detectMarkedOption(
+    line: string,
+    question: ParsedQuestion,
+  ): { answer?: string; choice?: string } | undefined {
+    const trimmed = line.trim();
+    if (!trimmed) return undefined;
+
+    const hasMarker =
+      /[\[\(]\s*[xX✓✔]\s*[\]\)]/.test(trimmed) ||
+      /(?:✓|✔|☑|■|●|◉|⦿)/.test(trimmed) ||
+      /\b(?:selected|chosen)\b/i.test(trimmed) ||
+      /^[>*]/.test(trimmed);
+
+    if (!hasMarker) return undefined;
+
+    let letter: string | undefined;
+    const letterMatch = trimmed.match(/\b([A-Z])(?:[).:\-]|\b)/);
+    if (letterMatch) {
+      letter = letterMatch[1].toUpperCase();
+    }
+
+    let answer: string | undefined;
+    if (letter) {
+      answer = this.resolveOptionByLetter(letter, question);
+    }
+
+    if (question.options?.length) {
+      const normalisedLine = this.normaliseTextForMatch(trimmed);
+      for (let idx = 0; idx < question.options.length; idx++) {
+        const option = question.options[idx];
+        const normalisedOption = this.normaliseTextForMatch(option);
+        if (!normalisedOption) continue;
+        if (normalisedLine.includes(normalisedOption)) {
+          answer = option;
+          if (!letter) letter = String.fromCharCode(65 + idx);
+          break;
+        }
+      }
+    }
+
+    if (!answer && !letter) return undefined;
+
+    return {
+      answer,
+      choice: letter,
+    };
+  }
+
+  private extractStandaloneAnswer(
+    line: string,
+    question: ParsedQuestion,
+  ): { answer?: string; choice?: string } | undefined {
+    const trimmed = line.trim();
+    if (!trimmed) return undefined;
+
+    const singleLetter = trimmed.match(/^(?:option\s*)?([A-Z])$/i);
+    if (singleLetter) {
+      const letter = singleLetter[1].toUpperCase();
+      return {
+        answer: this.resolveOptionByLetter(letter, question),
+        choice: letter,
+      };
+    }
+
+    const prefixed = trimmed.match(/^([A-Z])(?:[).:\-]|\s)+(.*)$/);
+    if (prefixed) {
+      const letter = prefixed[1].toUpperCase();
+      const remainder = prefixed[2]?.trim();
+      const option = this.resolveOptionByLetter(letter, question);
+      if (option) {
+        return {
+          answer: option,
+          choice: letter,
+        };
+      }
+      if (remainder) {
+        return {
+          answer: remainder,
+          choice: letter,
+        };
+      }
+    }
+
+    if (question.options?.length) {
+      const normalisedLine = this.normaliseTextForMatch(trimmed);
+      for (let idx = 0; idx < question.options.length; idx++) {
+        const option = question.options[idx];
+        const normalisedOption = this.normaliseTextForMatch(option);
+        if (!normalisedOption) continue;
+        if (normalisedLine === normalisedOption) {
+          const letter = String.fromCharCode(65 + idx);
+          return {
+            answer: option,
+            choice: letter,
+          };
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  private normaliseTextForMatch(value: string): string {
+    return value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   private cleanAiJsonOutput(raw: string): string {

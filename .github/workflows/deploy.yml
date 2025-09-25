@@ -8,6 +8,10 @@ on:
 env:
   IMAGE_NAME: exam-mode-be
   OWNER: urizennnn
+  REGISTRY: ghcr.io
+  REMOTE_HOST: ec2-44-216-249-21.compute-1.amazonaws.com
+  REMOTE_USER: ubuntu
+  REMOTE_DIR: ~/exam-mode-be
 
 jobs:
   deploy:
@@ -16,69 +20,101 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Build app
-        run: |
-          yarn install --immutable
-          yarn build
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Determine inactive color
-        id: color
-        env:
-          SSH_KEY_B64: ${{ secrets.SSH_KEY_B64 }}
-        run: |
-          # decode the base64‐encoded SSH key byte-for-byte
-          echo "$SSH_KEY_B64" | base64 -d > docenti_main.pem
-          chmod 600 docenti_main.pem
-
-          ACTIVE=$(ssh -i docenti_main.pem \
-            -o StrictHostKeyChecking=no \
-            ubuntu@ec2-18-204-84-112.compute-1.amazonaws.com \
-            'docker ps --filter "label=color=blue" -q')
-
-          if [ -n "$ACTIVE" ]; then
-            echo "color=green" >> "$GITHUB_OUTPUT"
-          else
-            echo "color=blue" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Login to GHCR
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ env.OWNER }}
           password: ${{ secrets.GHCR_TOKEN }}
 
       - name: Build and push image
         run: |
-          IMAGE=ghcr.io/${OWNER}/${IMAGE_NAME}
+          IMAGE=${REGISTRY}/${OWNER}/${IMAGE_NAME}
           docker buildx build \
             --platform linux/amd64 \
-            --tag "$IMAGE:${{ github.sha }}" \
-            --tag "$IMAGE:${{ steps.color.outputs.color }}" \
+            --tag "$IMAGE:${GITHUB_SHA}" \
+            --tag "$IMAGE:latest" \
             --push .
 
-      - name: Deploy on server
+      - name: Write SSH key
         env:
-          SSH_KEY_B64: ${{ secrets.SSH_KEY_B64 }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
         run: |
-          IMAGE=ghcr.io/${OWNER}/${IMAGE_NAME}:${{ steps.color.outputs.color }}
-          # decode and save key again for scp/ssh
-          echo "$SSH_KEY_B64" | base64 -d > docenti_main.pem
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > docenti_main.pem
           chmod 600 docenti_main.pem
 
+      - name: Ensure remote directory exists
+        run: |
+          ssh -o StrictHostKeyChecking=no \
+            -i docenti_main.pem \
+            ${REMOTE_USER}@${REMOTE_HOST} \
+            "mkdir -p ${REMOTE_DIR}"
+
+      - name: Determine blue/green target
+        id: colours
+        env:
+          SSH: ${{ format('{0}@{1}', env.REMOTE_USER, env.REMOTE_HOST) }}
+        run: |
+          ACTIVE=$(ssh -o StrictHostKeyChecking=no \
+            -i docenti_main.pem \
+            "$SSH" \
+            "if [ -f ${REMOTE_DIR}/active-color ]; then cat ${REMOTE_DIR}/active-color; else echo none; fi")
+
+          if [ "$ACTIVE" = "blue" ]; then
+            NEXT=green
+          else
+            NEXT=blue
+          fi
+
+          echo "active=$ACTIVE" >> "$GITHUB_OUTPUT"
+          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+
+      - name: Copy docker-compose definition
+        run: |
           scp -o StrictHostKeyChecking=no \
             -i docenti_main.pem \
-            scripts/deploy.sh \
-            ubuntu@ec2-18-204-84-112.compute-1.amazonaws.com:deploy.sh
+            docker-compose.yml \
+            ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/docker-compose.yml
+
+      - name: Sync Traefik configuration
+        run: |
+          scp -o StrictHostKeyChecking=no \
+            -i docenti_main.pem \
+            -r traefik \
+            ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/
+
+      - name: Deploy with Docker Compose
+        env:
+          TAG: ${{ github.sha }}
+          NEXT: ${{ steps.colours.outputs.next }}
+          ACTIVE: ${{ steps.colours.outputs.active }}
+        run: |
+          ssh -o StrictHostKeyChecking=no \
+            -i docenti_main.pem \
+            ${REMOTE_USER}@${REMOTE_HOST} \
+            "cd ${REMOTE_DIR} && IMAGE_TAG=${TAG} docker compose --profile ${NEXT} up -d traefik app-${NEXT}"
 
           ssh -o StrictHostKeyChecking=no \
             -i docenti_main.pem \
-            ubuntu@ec2-18-204-84-112.compute-1.amazonaws.com \
-            "chmod +x deploy.sh && ./deploy.sh $IMAGE ${{ steps.color.outputs.color }}"
+            ${REMOTE_USER}@${REMOTE_HOST} \
+            "for i in \$(seq 1 40); do STATUS=\$(docker inspect -f '{{.State.Health.Status}}' exam-mode-be-${NEXT} 2>/dev/null || echo starting); if [ \"\$STATUS\" = \"healthy\" ]; then exit 0; fi; if [ \"\$STATUS\" = \"unhealthy\" ]; then echo 'Container reported unhealthy status' >&2; exit 1; fi; sleep 3; done; echo 'Timed out waiting for exam-mode-be-${NEXT} to become healthy' >&2; exit 1"
 
+          ssh -o StrictHostKeyChecking=no \
+            -i docenti_main.pem \
+            ${REMOTE_USER}@${REMOTE_HOST} \
+            "cd ${REMOTE_DIR} && sed 's/__ACTIVE_COLOR__/${NEXT}/g' traefik/dynamic.yml.tpl > traefik/dynamic.yml && echo ${NEXT} > active-color"
+
+          if [ "${ACTIVE}" != "none" ]; then
+            ssh -o StrictHostKeyChecking=no \
+              -i docenti_main.pem \
+              ${REMOTE_USER}@${REMOTE_HOST} \
+              "cd ${REMOTE_DIR} && docker compose --profile ${ACTIVE} stop app-${ACTIVE} && docker compose rm -f app-${ACTIVE}"
+          fi
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f docenti_main.pem

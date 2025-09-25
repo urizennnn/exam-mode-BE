@@ -58,6 +58,26 @@ $ yarn run test:e2e
 $ yarn run test:cov
 ```
 
+## Docker
+
+```bash
+# build the production image
+$ docker build -t exam-mode-be .
+
+# run the container with your environment variables
+$ docker run --rm -p 8080:8080 --env-file .env exam-mode-be
+```
+
+When running locally, provide the same environment variables you use in development (see `.env.example`). The container listens on `8080` by default; use `-p <host-port>:8080` to expose a different host port.
+
+To run a published image with Docker Compose:
+
+```bash
+$ IMAGE_TAG=latest docker compose --profile blue up -d traefik app-blue
+```
+
+Override `IMAGE_TAG` to target a specific tag (for example `${GITHUB_SHA}` from CI). The compose file expects a `.env` file in the same directory to populate runtime configuration. The optional `traefik` service exposes the API on port `80` and enables blue/green deployments by proxying to either `app-blue` or `app-green`.
+
 ## Redis configuration
 
 Set these environment variables to enable Upstash Redis:

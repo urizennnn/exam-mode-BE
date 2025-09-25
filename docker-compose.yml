@@ -1,0 +1,57 @@
+x-app-common: &app-common
+  image: ghcr.io/urizennnn/exam-mode-be:${IMAGE_TAG:-latest}
+  restart: unless-stopped
+  env_file:
+    - .env
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+    interval: 30s
+    timeout: 5s
+    retries: 5
+    start_period: 10s
+  networks:
+    - exam-net
+  labels:
+    app: exam-mode-be
+    role: app
+
+services:
+  traefik:
+    image: traefik:v2.11
+    command:
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./traefik:/etc/traefik/dynamic:ro
+    networks:
+      - exam-net
+
+  app-blue:
+    <<: *app-common
+    profiles: ["blue"]
+    environment:
+      NODE_ENV: production
+      SERVICE_COLOR: blue
+    labels:
+      <<: *app-common.labels
+      color: blue
+    container_name: exam-mode-be-blue
+
+  app-green:
+    <<: *app-common
+    profiles: ["green"]
+    environment:
+      NODE_ENV: production
+      SERVICE_COLOR: green
+    labels:
+      <<: *app-common.labels
+      color: green
+    container_name: exam-mode-be-green
+
+networks:
+  exam-net:
+    name: exam-net
