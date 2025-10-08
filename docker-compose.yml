@@ -1,9 +1,8 @@
 x-app-common: &app-common
+  image: exam-mode-be:${IMAGE_TAG:-latest}
   build:
     context: .
     dockerfile: Dockerfile
-    tags:
-      - exam-mode-be:${IMAGE_TAG:-latest}
   restart: unless-stopped
   env_file:
     - .env
@@ -15,9 +14,10 @@ x-app-common: &app-common
     start_period: 10s
   networks:
     - exam-net
-  labels:
-    app: exam-mode-be
-    role: app
+
+x-common-labels: &common-labels
+  app: exam-mode-be
+  role: app
 
 services:
   traefik:
@@ -41,7 +41,7 @@ services:
       NODE_ENV: production
       SERVICE_COLOR: blue
     labels:
-      <<: *app-common.labels
+      <<: *common-labels
       color: blue
     container_name: exam-mode-be-blue
 
@@ -52,7 +52,7 @@ services:
       NODE_ENV: production
       SERVICE_COLOR: green
     labels:
-      <<: *app-common.labels
+      <<: *common-labels
       color: green
     container_name: exam-mode-be-green
 

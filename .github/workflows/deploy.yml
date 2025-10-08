@@ -92,7 +92,7 @@ jobs:
           ssh -o StrictHostKeyChecking=no \
             -i docenti_main.pem \
             ${REMOTE_USER}@${REMOTE_HOST} \
-            "for i in \$(seq 1 40); do STATUS=\$(docker inspect -f '{''{ .State.Health.Status }''}' exam-mode-be-${NEXT} 2>/dev/null || echo starting); if [ \"\$STATUS\" = \"healthy\" ]; then exit 0; fi; if [ \"\$STATUS\" = \"unhealthy\" ]; then echo 'Container reported unhealthy status' >&2; exit 1; fi; sleep 3; done; echo 'Timed out waiting for exam-mode-be-${NEXT} to become healthy' >&2; exit 1"
+            'for i in $(seq 1 40); do STATUS=$(docker inspect -f "{{.State.Health.Status}}" exam-mode-be-'"${NEXT}"' 2>/dev/null || echo starting); if [ "$STATUS" = "healthy" ]; then exit 0; fi; if [ "$STATUS" = "unhealthy" ]; then echo "Container reported unhealthy status" >&2; exit 1; fi; sleep 3; done; echo "Timed out waiting for exam-mode-be-'"${NEXT}"' to become healthy" >&2; exit 1'
 
           ssh -o StrictHostKeyChecking=no \
             -i docenti_main.pem \
