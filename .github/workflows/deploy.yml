@@ -78,6 +78,13 @@ jobs:
             -r src package.json yarn.lock tsconfig.json nest-cli.json Dockerfile .dockerignore \
             ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/
 
+      - name: Cleanup Docker resources
+        run: |
+          ssh -o StrictHostKeyChecking=no \
+            -i docenti_main.pem \
+            ${REMOTE_USER}@${REMOTE_HOST} \
+            "docker system prune -af || true"
+
       - name: Deploy with Docker Compose
         env:
           TAG: ${{ github.sha }}

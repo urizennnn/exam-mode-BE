@@ -6,6 +6,7 @@ RUN corepack enable && corepack prepare yarn@1.22.22 --activate
 
 FROM base AS deps
 COPY package.json yarn.lock ./
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 RUN yarn install --frozen-lockfile
 
 FROM deps AS build
@@ -45,6 +46,7 @@ RUN apt-get update && apt-get install -y \
 
 ENV NODE_ENV=production
 ENV PORT=8080
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 WORKDIR /app
 
 COPY package.json yarn.lock ./
