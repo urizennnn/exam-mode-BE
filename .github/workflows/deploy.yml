@@ -75,7 +75,7 @@ jobs:
 
           scp -o StrictHostKeyChecking=no \
             -i docenti_main.pem \
-            -r src package.json package-lock.json tsconfig.json nest-cli.json Dockerfile .dockerignore \
+            -r src package.json yarn.lock tsconfig.json nest-cli.json Dockerfile .dockerignore \
             ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/
 
       - name: Deploy with Docker Compose
