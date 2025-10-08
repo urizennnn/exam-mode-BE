@@ -37,16 +37,25 @@ export async function generateTranscriptPdf(
   // Use the new headless implementation to avoid deprecation warnings
   const browser = await puppeteer.launch({
     headless: 'new',
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--disable-gpu',
+    ],
   });
   try {
     const page = await browser.newPage();
+    // Set viewport to ensure consistent rendering
+    await page.setViewport({ width: 1200, height: 1600 });
     await page.setContent(html, { waitUntil: 'networkidle0' });
     await page.pdf({
       path: outputPath,
       format: 'A4',
       printBackground: true,
-      margin: { top: '1cm', bottom: '1cm', left: '1cm', right: '1cm' },
+      margin: { top: '1.5cm', bottom: '1.5cm', left: '1.5cm', right: '1.5cm' },
+      preferCSSPageSize: false,
     });
   } finally {
     await browser.close();

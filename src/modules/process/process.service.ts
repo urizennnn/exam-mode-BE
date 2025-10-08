@@ -141,7 +141,39 @@ Rules:
     }
   }
 
-  private async extractTextFromPdf(buffer: Buffer): Promise<string> {
+  private async extractTextFromPdf(buffer: Buffer, preserveLayout = true): Promise<string> {
+    // Try pdftotext first (better layout preservation)
+    if (preserveLayout) {
+      this.ensurePdftotext();
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const stdout = execFileSync(
+            'pdftotext',
+            ['-q', '-enc', 'UTF-8', '-layout', '-', '-'],
+            { input: buffer },
+          );
+          const text = stdout.toString('utf8');
+          if (text.trim()) {
+            // Normalize line breaks and excessive whitespace
+            const normalized = text
+              .replace(/\r\n/g, '\n')
+              .replace(/\r/g, '\n')
+              .split('\n')
+              .map(line => line.trimEnd())
+              .join('\n')
+              .replace(/\n{3,}/g, '\n\n');
+            return normalized;
+          }
+        } catch (err) {
+          this.logger.warn(
+            `pdftotext attempt ${attempt} failed: ${(err as Error).message}`,
+          );
+        }
+        await sleep(300 * attempt);
+      }
+    }
+
+    // Fallback to pdf-parse
     for (let attempt = 1; attempt <= 3; attempt++) {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       (console as { warn: (...args: unknown[]) => void }).warn =
@@ -149,7 +181,20 @@ Rules:
       try {
         const { text } = (await pdfparse(buffer)) as { text: string };
         if (text.trim()) {
-          return text;
+          // Add spacing after question numbers and options
+          const formatted = text
+            .replace(/\r\n/g, '\n')
+            .replace(/\r/g, '\n')
+            // Add newline after question numbers like "1." or "Question 1"
+            .replace(/(\d+\.)\s*/g, '\n$1 ')
+            // Add newline before option letters like "A." or "A)"
+            .replace(/([A-D])[\.)]\s*/g, '\n$1. ')
+            // Normalize multiple spaces
+            .replace(/ {2,}/g, ' ')
+            // Clean up excessive newlines
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+          return formatted;
         }
       } catch (err) {
         this.logger.warn(
@@ -161,26 +206,26 @@ Rules:
       await sleep(300 * attempt);
     }
 
-    this.ensurePdftotext();
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        const stdout = execFileSync(
-          'pdftotext',
-          ['-q', '-enc', 'UTF-8', '-layout', '-', '-'],
-          { input: buffer },
-        );
-        const text = stdout.toString('utf8');
-        if (text.trim()) {
-          return text;
-        }
-      } catch (err) {
-        this.logger.warn(
-          `pdftotext attempt ${attempt} failed: ${(err as Error).message}`,
-        );
-      }
-      await sleep(300 * attempt);
-    }
     return '';
+  }
+
+  private async downloadPdfFromUrl(url: string): Promise<Buffer> {
+    this.logger.debug(`Downloading PDF from URL: ${url}`);
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      this.logger.debug(`Downloaded PDF: ${buffer.length} bytes`);
+      return buffer;
+    } catch (err) {
+      this.logger.error(`Failed to download PDF from ${url}: ${(err as Error).message}`);
+      throw new InternalServerErrorException(
+        `Failed to download student answer PDF: ${(err as Error).message}`,
+      );
+    }
   }
 
   constructor(
@@ -342,27 +387,45 @@ Rules:
       const exam = await this.examModel.findOne({ examKey }).exec();
       if (!exam) throw new NotFoundException('Exam not found');
       const studenName = exam.invites.find((i) => i.email === email)?.name;
-      const buffer = await readFile(tmpPath);
-      const extracted = (await this.extractTextFromPdf(buffer)).trim();
-      if (!extracted) throw new BadRequestException('No text found in PDF');
 
-      let studentAnswers = this.parseStudentAnswerString(
-        studentAnswer,
-        exam.question_text,
-      );
+      // Read the exam PDF (contains questions and correct answers)
+      const examBuffer = await readFile(tmpPath);
+      const examText = (await this.extractTextFromPdf(examBuffer)).trim();
+      if (!examText) throw new BadRequestException('No text found in exam PDF');
 
-      const hasMissingAnswers = studentAnswers.some((entry) => {
-        const answerText = entry.answer?.trim() ?? '';
-        const choiceText = entry.choice?.trim() ?? '';
-        return !answerText && !choiceText;
-      });
+      // Download and extract the student's answer PDF from S3 URL
+      let studentPdfText = '';
+      let studentAnswers: StudentAnswerEntry[] = [];
 
-      const requiresDerivation =
-        (!studentAnswers.length || hasMissingAnswers) && extracted.length > 0;
+      // Check if studentAnswer is a URL (S3 link) or JSON string
+      const isUrl = studentAnswer.startsWith('http://') || studentAnswer.startsWith('https://');
 
-      if (requiresDerivation) {
+      if (isUrl) {
+        this.logger.debug(`Downloading student answer PDF from: ${studentAnswer}`);
+        try {
+          const studentPdfBuffer = await this.downloadPdfFromUrl(studentAnswer);
+          studentPdfText = (await this.extractTextFromPdf(studentPdfBuffer)).trim();
+          this.logger.debug(`Extracted ${studentPdfText.length} chars from student PDF`);
+        } catch (err) {
+          this.logger.error(`Failed to download/parse student PDF: ${(err as Error).message}`);
+          // Fallback: try to parse as JSON string
+          studentAnswers = this.parseStudentAnswerString(
+            studentAnswer,
+            exam.question_text,
+          );
+        }
+      } else {
+        // Legacy: try to parse as JSON string
+        studentAnswers = this.parseStudentAnswerString(
+          studentAnswer,
+          exam.question_text,
+        );
+      }
+
+      // If we have student PDF text, extract answers from it
+      if (studentPdfText.length > 0) {
         const deterministic = this.extractStudentAnswersFromPdfText(
-          extracted,
+          studentPdfText,
           exam.question_text,
         );
 
@@ -373,15 +436,17 @@ Rules:
           );
         }
 
-        const missingAfterDeterministic = studentAnswers.some((entry) => {
+        // Check if we still have missing answers
+        const hasMissingAnswers = studentAnswers.some((entry) => {
           const answerText = entry.answer?.trim() ?? '';
           const choiceText = entry.choice?.trim() ?? '';
           return !answerText && !choiceText;
         });
 
-        if (missingAfterDeterministic) {
+        // Use AI to derive answers if still missing
+        if (hasMissingAnswers || studentAnswers.length === 0) {
           const derived = await this.deriveStudentAnswersFromText(
-            extracted,
+            studentPdfText,
             exam.question_text,
           );
           studentAnswers = this.mergeStudentAnswerEntries(
@@ -391,10 +456,11 @@ Rules:
         }
       }
 
-      const scoreText = await this.generateScoreText(extracted);
+      // Generate score by comparing student answers with exam answers
+      const scoreText = await this.generateScoreText(examText);
 
       const pdfBytes = await this.createTranscriptPdf(
-        buffer,
+        examBuffer,
         scoreText,
         examKey,
         email,
@@ -778,7 +844,7 @@ Rules:
           }
 
           .qa + .qa {
-            margin-top: 20px;
+            margin-top: 24px;
           }
 
           .qa {
@@ -787,6 +853,8 @@ Rules:
             border: 1px solid var(--border);
             background: white;
             box-shadow: 0 12px 24px rgba(15, 23, 42, 0.05);
+            page-break-inside: avoid;
+            break-inside: avoid;
           }
 
           .qa--correct {
@@ -833,8 +901,11 @@ Rules:
           .qa__question {
             margin: 0 0 18px;
             font-size: 18px;
-            line-height: 1.5;
+            line-height: 1.6;
             color: var(--text);
+            word-wrap: break-word;
+            word-break: break-word;
+            white-space: pre-wrap;
           }
 
           .qa__options {
@@ -842,17 +913,18 @@ Rules:
             margin: 0 0 18px;
             padding: 0;
             display: grid;
-            gap: 10px;
+            gap: 12px;
           }
 
           .option {
             display: flex;
             align-items: flex-start;
             gap: 12px;
-            padding: 12px 14px;
+            padding: 14px 16px;
             border-radius: 12px;
             border: 1px solid transparent;
             background: rgba(226, 232, 240, 0.45);
+            min-height: 50px;
           }
 
           .option__bullet {
@@ -865,12 +937,17 @@ Rules:
             font-weight: 600;
             background: rgba(15, 23, 42, 0.06);
             color: var(--muted);
+            flex-shrink: 0;
           }
 
           .option__text {
             flex: 1;
             font-size: 15px;
+            line-height: 1.5;
             color: var(--text);
+            word-wrap: break-word;
+            word-break: break-word;
+            white-space: pre-wrap;
           }
 
           .option--selected {
@@ -912,8 +989,11 @@ Rules:
             margin: 0;
             color: var(--text);
             font-size: 15px;
-            line-height: 1.5;
+            line-height: 1.6;
             white-space: pre-wrap;
+            word-wrap: break-word;
+            word-break: break-word;
+            min-height: 24px;
           }
 
           footer {
