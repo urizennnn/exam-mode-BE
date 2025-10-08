@@ -54,7 +54,7 @@
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^1.1.1",
     "pdfkit": "^0.16.0",
-    "puppeteer": "^21.8.0",
+    "puppeteer-core": "^21.8.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "sprintf-js": "^1.1.3",

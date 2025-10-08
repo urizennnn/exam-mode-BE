@@ -1,4 +1,4 @@
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-core';
 import { readFile } from 'node:fs/promises';
 import * as path from 'path';
 
@@ -34,8 +34,8 @@ export async function generateTranscriptPdf(
   html: string,
   outputPath: string,
 ): Promise<void> {
-  // Use the new headless implementation to avoid deprecation warnings
   const browser = await puppeteer.launch({
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
     headless: 'new',
     args: [
       '--no-sandbox',
