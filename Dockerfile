@@ -6,7 +6,6 @@ RUN corepack enable && corepack prepare yarn@1.22.22 --activate
 
 FROM base AS deps
 COPY package.json yarn.lock ./
-ENV PUPPETEER_SKIP_DOWNLOAD=true
 RUN yarn install --frozen-lockfile
 
 FROM deps AS build
@@ -15,8 +14,8 @@ RUN yarn build
 
 FROM node:20-bullseye AS production
 
-# Install system dependencies required for pdf processing and headless Chromium
 RUN apt-get update && apt-get install -y \
+    ca-certificates \
     fonts-liberation \
     libasound2 \
     libatk-bridge2.0-0 \
@@ -31,9 +30,12 @@ RUN apt-get update && apt-get install -y \
     libnss3 \
     libpango-1.0-0 \
     libpangocairo-1.0-0 \
+    libx11-6 \
     libx11-xcb1 \
+    libxcb1 \
     libxcomposite1 \
     libxdamage1 \
+    libxext6 \
     libxfixes3 \
     libxkbcommon0 \
     libxrandr2 \
@@ -46,15 +48,15 @@ RUN apt-get update && apt-get install -y \
 
 ENV NODE_ENV=production
 ENV PORT=8080
-ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
 WORKDIR /app
 
 COPY package.json yarn.lock ./
 RUN corepack enable && corepack prepare yarn@1.22.22 --activate \
-    && yarn install --frozen-lockfile --production
+    && yarn install --frozen-lockfile --production \
+    && yarn cache clean
 
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/init.sh ./init.sh
 
 EXPOSE 8080
 CMD ["node", "dist/main"]
