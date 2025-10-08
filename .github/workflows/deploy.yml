@@ -7,8 +7,6 @@ on:
 
 env:
   IMAGE_NAME: exam-mode-be
-  OWNER: urizennnn
-  REGISTRY: ghcr.io
   REMOTE_HOST: ec2-44-216-249-21.compute-1.amazonaws.com
   REMOTE_USER: ubuntu
   REMOTE_DIR: ~/exam-mode-be
@@ -19,25 +17,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ env.OWNER }}
-          password: ${{ secrets.GHCR_TOKEN }}
-
-      - name: Build and push image
-        run: |
-          IMAGE=${REGISTRY}/${OWNER}/${IMAGE_NAME}
-          docker buildx build \
-            --platform linux/amd64 \
-            --tag "$IMAGE:${GITHUB_SHA}" \
-            --tag "$IMAGE:latest" \
-            --push .
 
       - name: Write SSH key
         env:
@@ -87,6 +66,18 @@ jobs:
             -r traefik \
             ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/
 
+      - name: Sync application source code
+        run: |
+          ssh -o StrictHostKeyChecking=no \
+            -i docenti_main.pem \
+            ${REMOTE_USER}@${REMOTE_HOST} \
+            "rm -rf ${REMOTE_DIR}/src"
+
+          scp -o StrictHostKeyChecking=no \
+            -i docenti_main.pem \
+            -r src package.json package-lock.json tsconfig.json nest-cli.json Dockerfile .dockerignore \
+            ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/
+
       - name: Deploy with Docker Compose
         env:
           TAG: ${{ github.sha }}
@@ -96,7 +87,7 @@ jobs:
           ssh -o StrictHostKeyChecking=no \
             -i docenti_main.pem \
             ${REMOTE_USER}@${REMOTE_HOST} \
-            "cd ${REMOTE_DIR} && IMAGE_TAG=${TAG} docker compose --profile ${NEXT} up -d traefik app-${NEXT}"
+            "cd ${REMOTE_DIR} && IMAGE_TAG=${TAG} docker compose --profile ${NEXT} build app-${NEXT} && docker compose --profile ${NEXT} up -d traefik app-${NEXT}"
 
           ssh -o StrictHostKeyChecking=no \
             -i docenti_main.pem \

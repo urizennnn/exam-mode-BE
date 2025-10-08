@@ -52,7 +52,6 @@ export class ProcessService {
 
   private readonly originalWarn = console.warn;
 
-  // NOTE: DO NOT CHANGE THESE PROMPTS WITHOUT TESTING!
   private readonly markPrompt =
     `You are an exam PDF parser. You'll receive raw extracted text containing exam questions, the correct answers, and a student's responses. Your task:
 1. Identify every question.
@@ -142,7 +141,6 @@ Rules:
   }
 
   private async extractTextFromPdf(buffer: Buffer, preserveLayout = true): Promise<string> {
-    // Try pdftotext first (better layout preservation)
     if (preserveLayout) {
       this.ensurePdftotext();
       for (let attempt = 1; attempt <= 3; attempt++) {
@@ -154,7 +152,6 @@ Rules:
           );
           const text = stdout.toString('utf8');
           if (text.trim()) {
-            // Normalize line breaks and excessive whitespace
             const normalized = text
               .replace(/\r\n/g, '\n')
               .replace(/\r/g, '\n')
@@ -173,25 +170,18 @@ Rules:
       }
     }
 
-    // Fallback to pdf-parse
     for (let attempt = 1; attempt <= 3; attempt++) {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       (console as { warn: (...args: unknown[]) => void }).warn =
         this.filterWarn.bind(this);
       try {
         const { text } = (await pdfparse(buffer)) as { text: string };
         if (text.trim()) {
-          // Add spacing after question numbers and options
           const formatted = text
             .replace(/\r\n/g, '\n')
             .replace(/\r/g, '\n')
-            // Add newline after question numbers like "1." or "Question 1"
             .replace(/(\d+\.)\s*/g, '\n$1 ')
-            // Add newline before option letters like "A." or "A)"
             .replace(/([A-D])[\.)]\s*/g, '\n$1. ')
-            // Normalize multiple spaces
             .replace(/ {2,}/g, ' ')
-            // Clean up excessive newlines
             .replace(/\n{3,}/g, '\n\n')
             .trim();
           return formatted;
@@ -388,16 +378,13 @@ Rules:
       if (!exam) throw new NotFoundException('Exam not found');
       const studenName = exam.invites.find((i) => i.email === email)?.name;
 
-      // Read the exam PDF (contains questions and correct answers)
       const examBuffer = await readFile(tmpPath);
       const examText = (await this.extractTextFromPdf(examBuffer)).trim();
       if (!examText) throw new BadRequestException('No text found in exam PDF');
 
-      // Download and extract the student's answer PDF from S3 URL
       let studentPdfText = '';
       let studentAnswers: StudentAnswerEntry[] = [];
 
-      // Check if studentAnswer is a URL (S3 link) or JSON string
       const isUrl = studentAnswer.startsWith('http://') || studentAnswer.startsWith('https://');
 
       if (isUrl) {
@@ -408,21 +395,18 @@ Rules:
           this.logger.debug(`Extracted ${studentPdfText.length} chars from student PDF`);
         } catch (err) {
           this.logger.error(`Failed to download/parse student PDF: ${(err as Error).message}`);
-          // Fallback: try to parse as JSON string
           studentAnswers = this.parseStudentAnswerString(
             studentAnswer,
             exam.question_text,
           );
         }
       } else {
-        // Legacy: try to parse as JSON string
         studentAnswers = this.parseStudentAnswerString(
           studentAnswer,
           exam.question_text,
         );
       }
 
-      // If we have student PDF text, extract answers from it
       if (studentPdfText.length > 0) {
         const deterministic = this.extractStudentAnswersFromPdfText(
           studentPdfText,
@@ -436,14 +420,12 @@ Rules:
           );
         }
 
-        // Check if we still have missing answers
         const hasMissingAnswers = studentAnswers.some((entry) => {
           const answerText = entry.answer?.trim() ?? '';
           const choiceText = entry.choice?.trim() ?? '';
           return !answerText && !choiceText;
         });
 
-        // Use AI to derive answers if still missing
         if (hasMissingAnswers || studentAnswers.length === 0) {
           const derived = await this.deriveStudentAnswersFromText(
             studentPdfText,
@@ -456,7 +438,6 @@ Rules:
         }
       }
 
-      // Generate score by comparing student answers with exam answers
       const scoreText = await this.generateScoreText(examText);
 
       const pdfBytes = await this.createTranscriptPdf(

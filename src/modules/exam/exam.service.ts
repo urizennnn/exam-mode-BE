@@ -154,9 +154,10 @@ export class ExamService {
 
   async dropEmailFromInvite(email: string, key: string) {
     try {
+      const lowercasedEmail = email.toLowerCase();
       await this.examModel.updateOne(
         { examKey: key },
-        { $pull: { invites: { email: email.toLowerCase() } } },
+        { $pull: { invites: { email: lowercasedEmail } } },
       );
       return { message: 'Email removed' };
     } catch (err) {
@@ -254,9 +255,11 @@ export class ExamService {
       const exam = await this.examModel.findOne({ examKey }).exec();
       if (!exam) throw new NotFoundException('Exam not found');
 
+      const lowercasedEmail = email.toLowerCase();
+
       if (
         exam.invites.length > 0 &&
-        !exam.invites.some((i) => i.email === email.toLowerCase())
+        !exam.invites.some((i) => i.email === lowercasedEmail)
       ) {
         throw new BadRequestException('Student not invited for this exam');
       }
@@ -265,7 +268,15 @@ export class ExamService {
         throw new BadRequestException('This exam is closed');
       }
 
-      // fire the "in" event
+      const existingSubmission = exam.submissions?.find(
+        (s) => s.email === lowercasedEmail,
+      );
+      if (existingSubmission) {
+        throw new BadRequestException(
+          'You have already completed this exam and cannot retake it',
+        );
+      }
+
       this.events.emit(STUDENT_IN_EVENT, exam._id.toString());
 
       const questions = Array.isArray(exam.question_text)
@@ -295,7 +306,6 @@ export class ExamService {
       const exam = await this.examModel.findOne({ examKey }).exec();
       if (!exam) throw new NotFoundException('Exam not found');
 
-      // fire the "out" event
       this.events.emit(STUDENT_OUT_EVENT, exam._id.toString());
       return { message: 'Logout successful' };
     } catch (err) {
@@ -365,8 +375,6 @@ export class ExamService {
       throw err;
     }
   }
-
-  // -- private event handlers --
 
   private async handleStudentIn(examId: string) {
     await this.examModel

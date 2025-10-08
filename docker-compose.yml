@@ -1,5 +1,9 @@
 x-app-common: &app-common
-  image: ghcr.io/urizennnn/exam-mode-be:${IMAGE_TAG:-latest}
+  build:
+    context: .
+    dockerfile: Dockerfile
+    tags:
+      - exam-mode-be:${IMAGE_TAG:-latest}
   restart: unless-stopped
   env_file:
     - .env

@@ -103,14 +103,12 @@ ExamSchema.pre<ExamDocument>('save', function (next) {
   }
 
   if (this.isModified('submissions')) {
-    const inviteEmails = this.invites.map((inv) => inv.email.toLowerCase());
-    this.submissions = this.submissions
-      .map((submission) => ({
-        ...submission,
-        email: submission.email.toLowerCase(),
-      }))
-      .filter((submission) => inviteEmails.includes(submission.email));
+    this.submissions = this.submissions.map((submission) => ({
+      ...submission,
+      email: submission.email.toLowerCase(),
+    }));
   }
+
   if (this.isModified('access')) {
     if (this.access == ExamAccessType.CLOSED) {
       this.endDate = new Date();
