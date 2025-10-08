@@ -6,7 +6,7 @@ RUN corepack enable && corepack prepare yarn@1.22.22 --activate
 
 FROM base AS deps
 COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile
+RUN yarn install 
 
 FROM deps AS build
 COPY . .
@@ -29,7 +29,7 @@ WORKDIR /app
 
 COPY package.json yarn.lock ./
 RUN corepack enable && corepack prepare yarn@1.22.22 --activate \
-    && yarn install --frozen-lockfile --production \
+    && yarn install \
     && yarn cache clean
 
 COPY --from=build /app/dist ./dist
