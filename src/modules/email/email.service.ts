@@ -67,12 +67,19 @@ export class MailService {
       });
       logger.debug(`Email sent: ${JSON.stringify(response)}`);
     } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : typeof err === 'object' && err !== null
+            ? JSON.stringify(err)
+            : String(err);
+
       if (logger && typeof (logger as Partial<LoggerLike>).error === 'function') {
         logger.error('Error sending mail', err);
       } else {
         console.error('Error sending mail', err);
       }
-      throw err instanceof Error ? err : new Error(String(err));
+      throw new Error(`Mail send failed: ${message}`);
     }
   }
 }

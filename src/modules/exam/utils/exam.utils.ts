@@ -12,9 +12,10 @@ export async function sendInvite(
 ) {
   const mailer = new MailService(cfg);
 
-  await Promise.all(
-    recipients.map(({ email, name }) =>
-      mailer.send({
+  const errors: { email: string; error: string }[] = [];
+  for (const { email, name } of recipients) {
+    try {
+      await mailer.send({
         to: email,
         subject: `Invitation to write ${examTitle}`,
         html: `<p>Dear ${name},</p>
@@ -26,9 +27,20 @@ export async function sendInvite(
                </ol>
                <p>Ensure you use the correct email address and code to access the exam.</p>
                <p>Thank you.</p>`,
-      }),
-    ),
-  );
+      });
+    } catch (err) {
+      errors.push({
+        email,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new Error(
+      `Failed to send ${errors.length}/${recipients.length} invite(s): ${errors.map((e) => `${e.email}: ${e.error}`).join('; ')}`,
+    );
+  }
 }
 export async function sendTranscript(
   email: string,
