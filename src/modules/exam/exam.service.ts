@@ -378,14 +378,24 @@ export class ExamService {
 
   private async handleStudentIn(examId: string) {
     await this.examModel
-      .updateOne({ _id: examId }, { $inc: { ongoing: 1 } })
+      .updateOne({ _id: examId }, [
+        {
+          $set: {
+            ongoing: {
+              $min: [{ $add: ['$ongoing', 1] }, { $size: '$invites' }],
+            },
+          },
+        },
+      ])
       .exec();
     this.logger.verbose(`Ongoing++ for exam ${examId}`);
   }
 
   private async handleStudentOut(examId: string) {
     await this.examModel
-      .updateOne({ _id: examId }, { $inc: { ongoing: -1 } })
+      .updateOne({ _id: examId }, [
+        { $set: { ongoing: { $max: [{ $subtract: ['$ongoing', 1] }, 0] } } },
+      ])
       .exec();
     this.logger.verbose(`Ongoing-- for exam ${examId}`);
   }
