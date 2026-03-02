@@ -47,7 +47,7 @@ interface StudentAnswerEntry {
 export class ProcessService {
   private readonly ai = new GoogleGenerativeAI(process.env.GEMINI_KEY!);
   private readonly model: GenerativeModel = this.ai.getGenerativeModel({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-2.5-flash',
   });
 
   private readonly originalWarn = console.warn;
@@ -70,15 +70,29 @@ Do not include any other text or explanation.`.trim();
   "options": ["<option 1>", "<option 2>", ...],
   "answer": "<exact answer text>"
 }
-Rules:
-- A question is "multiple-choice" if and only if it has lettered options (A, B, C, D or similar). Always set type to "multiple-choice" when options are present.
-- A question is "theory" only when there are NO lettered options at all.
+
+CLASSIFICATION RULES (follow strictly):
+- A question MUST be classified as "multiple-choice" if ANY of the following are true:
+  1. It has lettered options (A, B, C, D or A), B), C), D) or a. b. c. d. etc.)
+  2. It has numbered options (1, 2, 3, 4) presented as selectable choices
+  3. It uses True/False, Yes/No, or similar binary choices
+  4. It asks the student to "select", "choose", "pick", or "circle" an answer
+  5. It has any list of predefined answer choices, regardless of formatting
+- A question is "theory" ONLY when it requires a free-form written response with NO predefined answer choices whatsoever.
+- When in doubt, classify as "multiple-choice". Err on the side of multiple-choice.
+
+OPTIONS RULES:
+- For multiple-choice questions, "options" must ALWAYS be a non-empty array containing every available choice.
+- For True/False questions, set options to ["True", "False"].
+- For theory questions, set "options" to an empty array [].
+
+OTHER RULES:
 - Do NOT paraphrase or modify any part of the question, options, or answer.
 - For theory questions, never invent answers; include "answer" only when it appears verbatim in the source.
 - Remove any leading or trailing whitespace from all text.
 - Remove duplicate options if shown in the source.
 - If no questions are present, return an empty array.
-Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
+Return ONLY the JSON array -- no markdown fences, no extra text.`.trim();
 
   private readonly studentAnswersPrompt =
     `You are analyzing a student's completed exam submission. You will receive two inputs:
