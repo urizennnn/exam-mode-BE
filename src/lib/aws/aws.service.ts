@@ -1,4 +1,4 @@
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { v4 } from 'uuid';
@@ -52,6 +52,22 @@ export class AwsService {
       }
       return { secure_url: '' };
     }
+  }
+
+  async downloadFile(url: string): Promise<Buffer> {
+    const baseUrl = this.getBucketURL();
+    const key = url.replace(baseUrl, '');
+    const response = await this.s3Client.send(
+      new GetObjectCommand({
+        Bucket: this.config.getOrThrow<string>('AWS_BUCKET_NAME'),
+        Key: key,
+      }),
+    );
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
   }
 
   private getBucketURL(): string {

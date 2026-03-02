@@ -9,7 +9,7 @@ env:
   IMAGE_NAME: exam-mode-be
   REMOTE_HOST: ec2-44-216-249-21.compute-1.amazonaws.com
   REMOTE_USER: ubuntu
-  REMOTE_DIR: ~/exam-mode-be
+  REMOTE_DIR: ~/exam-mode-BE
 
 jobs:
   deploy:
@@ -59,12 +59,21 @@ jobs:
             docker-compose.yml \
             ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/docker-compose.yml
 
-      - name: Sync Traefik configuration
+      - name: Sync Traefik template
         run: |
           scp -o StrictHostKeyChecking=no \
             -i docenti_main.pem \
-            -r traefik \
-            ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/
+            traefik/dynamic.yml.tpl \
+            ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/traefik/dynamic.yml.tpl
+
+      - name: Ensure Traefik routing matches active color
+        env:
+          ACTIVE: ${{ steps.colours.outputs.active }}
+        run: |
+          ssh -o StrictHostKeyChecking=no \
+            -i docenti_main.pem \
+            ${REMOTE_USER}@${REMOTE_HOST} \
+            "cd ${REMOTE_DIR} && mkdir -p traefik && if [ '${ACTIVE}' != 'none' ]; then sed 's/__ACTIVE_COLOR__/${ACTIVE}/g' traefik/dynamic.yml.tpl > traefik/dynamic.yml; fi"
 
       - name: Sync application source code
         run: |

@@ -18,6 +18,9 @@ dist/
 build/
 /target
 
+# Traefik dynamic config is generated from template during deploy
+traefik/dynamic.yml
+
 # Ignore dependency directories
 vendor/
 

@@ -305,6 +305,39 @@ Rules:
     return info;
   }
 
+  async reparsePdf(examKey: string): Promise<void> {
+    const exam = await this.examModel.findOne({ examKey }).exec();
+    if (!exam) throw new NotFoundException('Exam not found');
+    if (!exam.pdfUrl) throw new BadRequestException('No PDF stored for this exam');
+
+    this.logger.debug(`Reprocessing exam ${examKey} from ${exam.pdfUrl}`);
+    const buffer = await this.aws.downloadFile(exam.pdfUrl);
+    const extracted = (await this.extractTextFromPdf(buffer)).trim();
+    if (!extracted) throw new BadRequestException('No text found in PDF');
+
+    const raw = await this.aiGenerateWithRetry([this.parsePrompt, extracted]).then(
+      (t) =>
+        t
+          .replace(/```json/gi, '')
+          .replace(/```/g, '')
+          .trim()
+          .split('\n')
+          .filter((l) => l.trim() !== ',')
+          .join('\n'),
+    );
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw) as unknown;
+    } catch {
+      throw new BadRequestException('AI returned unparseable output during reparse');
+    }
+
+    exam.question_text = (Array.isArray(parsed) ? parsed : [parsed]) as ParsedQuestion[];
+    await exam.save();
+    this.logger.debug(`Exam ${examKey} reprocessed successfully`);
+  }
+
   async parsePdfWorker(job: Job<ParseJobData>): Promise<unknown> {
     const { tmpPath, examKey } = job.data;
     this.logger.debug(`Processing parse worker for ${tmpPath}`);
@@ -342,11 +375,17 @@ Rules:
             Array.isArray(parsed) ? parsed : [parsed]
           ) as ParsedQuestion[];
           exam.question_text = arr;
+          const { secure_url } = await this.aws.uploadFile(
+            `exam-${examKey}.pdf`,
+            buffer,
+          );
+          if (secure_url) exam.pdfUrl = secure_url;
           await exam.save();
         }
       }
 
       return parsed;
+
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       this.logger.error(`Error in parsePdfWorker: ${JSON.stringify(msg)}`);

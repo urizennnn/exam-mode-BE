@@ -79,6 +79,9 @@ export class Exam {
   @Prop({ required: false })
   submissions: Array<Submissions>;
 
+  @Prop({ required: false })
+  pdfUrl: string;
+
   @Prop({ type: [Object], default: [] })
   question_text: ParsedQuestion[];
 

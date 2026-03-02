@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  HttpCode,
   Param,
   Post,
   Query,
@@ -44,6 +45,13 @@ export class ProcessController {
       studentAnswer,
       timeSpent,
     );
+  }
+
+  @Post('reparse/:examKey')
+  @HttpCode(200)
+  async reparsePdf(@Param('examKey') examKey: string): Promise<{ message: string }> {
+    await this.service.reparsePdf(examKey);
+    return { message: 'Exam reprocessed successfully' };
   }
 
   @Get('job/:id')
