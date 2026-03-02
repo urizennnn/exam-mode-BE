@@ -1783,13 +1783,47 @@ Rules:
     else exam.submissions.push(submission);
   }
 
+  private sanitiseForWinAnsi(text: string): string {
+    const replacements: [RegExp, string][] = [
+      [/\u2192/g, '->'],  // →
+      [/\u2190/g, '<-'],  // ←
+      [/\u2194/g, '<->'], // ↔
+      [/\u21d2/g, '=>'],  // ⇒
+      [/\u21d0/g, '<='],  // ⇐
+      [/\u2265/g, '>='],  // ≥
+      [/\u2264/g, '<='],  // ≤
+      [/\u2260/g, '!='],  // ≠
+      [/\u2248/g, '~='],  // ≈
+      [/\u2022/g, '-'],   // •
+      [/\u2026/g, '...'], // …
+      [/\u2014/g, '--'],  // —
+      [/\u2013/g, '-'],   // –
+      [/[\u201c\u201d]/g, '"'],  // " "
+      [/[\u2018\u2019]/g, "'"],  // ' '
+      [/\u00d7/g, 'x'],   // ×
+      [/\u00f7/g, '/'],   // ÷
+      [/\u2211/g, 'sum'], // ∑
+      [/\u221a/g, 'sqrt'], // √
+      [/\u221e/g, 'inf'], // ∞
+      [/\u2205/g, '{}'],  // ∅
+      [/[\u2713\u2714]/g, '[x]'], // ✓ ✔
+      [/\u2717/g, '[ ]'], // ✗
+      [/[\u25cf\u25cb\u25a0\u25a1]/g, '*'], // ● ○ ■ □
+    ];
+    let result = text;
+    for (const [pattern, replacement] of replacements) {
+      result = result.replace(pattern, replacement);
+    }
+    return result;
+  }
+
   private async aiGenerateWithRetry(
     msgs: string[],
     attempt = 1,
   ): Promise<string> {
     try {
       const res = await this.model.generateContent(msgs);
-      return res.response.text();
+      return this.sanitiseForWinAnsi(res.response.text());
     } catch (err) {
       this.logger.warn(`AI fail x${attempt}: ${(err as Error).message}`);
       if (attempt >= 3) throw err;
