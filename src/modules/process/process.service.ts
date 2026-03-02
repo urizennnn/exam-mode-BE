@@ -71,13 +71,14 @@ Do not include any other text or explanation.`.trim();
   "answer": "<exact answer text>"
 }
 Rules:
-- Detect the question type accurately.
+- A question is "multiple-choice" if and only if it has lettered options (A, B, C, D or similar). Always set type to "multiple-choice" when options are present.
+- A question is "theory" only when there are NO lettered options at all.
 - Do NOT paraphrase or modify any part of the question, options, or answer.
 - For theory questions, never invent answers; include "answer" only when it appears verbatim in the source.
 - Remove any leading or trailing whitespace from all text.
 - Remove duplicate options if shown in the source.
 - If no questions are present, return an empty array.
-  Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
+Return ONLY the JSON array—no markdown fences, no extra text.`.trim();
 
   private readonly studentAnswersPrompt =
     `You are analyzing a student's completed exam submission. You will receive two inputs:
