@@ -1,6 +1,10 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
-import { Submissions, ParsedQuestion } from '../interfaces/exam.interface';
+import {
+  Submissions,
+  ParsedQuestion,
+  ExamAttempt,
+} from '../interfaces/exam.interface';
 import { ConfigService } from '@nestjs/config';
 
 export enum ExamAccessType {
@@ -45,6 +49,24 @@ class Settings {
   examType: ExamTypeSettings;
 }
 
+@Schema({ _id: false })
+class AttemptSchema implements ExamAttempt {
+  @Prop({ required: true })
+  attemptId: string;
+
+  @Prop({ required: true })
+  email: string;
+
+  @Prop({ type: [Number], required: true, default: [] })
+  questionOrder: number[];
+
+  @Prop({ required: true })
+  startedAt: string;
+
+  @Prop()
+  submittedAt?: string;
+}
+
 @Schema({ collection: 'exams', timestamps: true, strict: false })
 export class Exam {
   @Prop({ required: true })
@@ -79,6 +101,9 @@ export class Exam {
   @Prop({ required: false })
   submissions: Array<Submissions>;
 
+  @Prop({ required: false, type: [AttemptSchema], default: [] })
+  attempts: Array<ExamAttempt>;
+
   @Prop({ required: false })
   pdfUrl: string;
 
@@ -109,6 +134,13 @@ ExamSchema.pre<ExamDocument>('save', function (next) {
     this.submissions = this.submissions.map((submission) => ({
       ...submission,
       email: submission.email.toLowerCase(),
+    }));
+  }
+
+  if (this.isModified('attempts')) {
+    this.attempts = this.attempts.map((attempt) => ({
+      ...attempt,
+      email: attempt.email.toLowerCase(),
     }));
   }
 

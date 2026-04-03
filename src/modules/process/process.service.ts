@@ -43,6 +43,16 @@ interface StudentAnswerEntry {
   raw?: unknown;
 }
 
+interface EvaluatedAnswer {
+  index: number;
+  question: ParsedQuestion;
+  studentDisplay: string;
+  matchValue: string;
+  correctAnswer: string;
+  isScorable: boolean;
+  isCorrect: boolean;
+}
+
 @Injectable()
 export class ProcessService {
   private readonly ai = new GoogleGenerativeAI(process.env.GEMINI_KEY!);
@@ -51,16 +61,6 @@ export class ProcessService {
   });
 
   private readonly originalWarn = console.warn;
-
-  private readonly markPrompt =
-    `You are an exam PDF parser. You'll receive raw extracted text containing exam questions, the correct answers, and a student's responses. Your task:
-1. Identify every question.
-2. Compare the student's answer to the correct answer for each.
-3. Calculate the total correct responses.
-4. Return ONLY the result as a fraction in the form X/Y, where Y is the total number of questions.
-5. Do not include any additional text, explanations, or formatting.
-6. Do not mark theory questions; only multiple-choice questions are scored.
-Do not include any other text or explanation.`.trim();
 
   private readonly parsePrompt =
     `You are an exam PDF parser receiving raw extracted PDF text. Return a JSON array. Each element MUST be an object with:
@@ -431,6 +431,11 @@ Rules:
       const exam = await this.examModel.findOne({ examKey }).exec();
       if (!exam) throw new NotFoundException('Exam not found');
       const studenName = exam.invites.find((i) => i.email === email)?.name;
+      const attempt = this.findLatestActiveAttempt(exam, email.toLowerCase());
+      const presentedQuestions = this.getPresentedQuestions(
+        exam.question_text,
+        attempt?.questionOrder,
+      );
 
       const examBuffer = await readFile(tmpPath);
       const examText = (await this.extractTextFromPdf(examBuffer)).trim();
@@ -451,20 +456,20 @@ Rules:
           this.logger.error(`Failed to download/parse student PDF: ${(err as Error).message}`);
           studentAnswers = this.parseStudentAnswerString(
             studentAnswer,
-            exam.question_text,
+            presentedQuestions,
           );
         }
       } else {
         studentAnswers = this.parseStudentAnswerString(
           studentAnswer,
-          exam.question_text,
+          presentedQuestions,
         );
       }
 
       if (studentPdfText.length > 0) {
         const deterministic = this.extractStudentAnswersFromPdfText(
           studentPdfText,
-          exam.question_text,
+          presentedQuestions,
         );
 
         if (deterministic.length) {
@@ -483,7 +488,7 @@ Rules:
         if (hasMissingAnswers || studentAnswers.length === 0) {
           const derived = await this.deriveStudentAnswersFromText(
             studentPdfText,
-            exam.question_text,
+            presentedQuestions,
           );
           studentAnswers = this.mergeStudentAnswerEntries(
             studentAnswers,
@@ -492,7 +497,16 @@ Rules:
         }
       }
 
-      const scoreText = await this.generateScoreText(examText);
+      const canonicalStudentAnswers = this.remapAnswersToCanonicalOrder(
+        studentAnswers,
+        attempt?.questionOrder,
+        exam.question_text,
+      );
+      const evaluatedAnswers = this.evaluateAnswers(
+        exam.question_text,
+        canonicalStudentAnswers,
+      );
+      const scoreText = this.formatScoreText(evaluatedAnswers);
 
       const pdfBytes = await this.createTranscriptPdf(
         examBuffer,
@@ -501,8 +515,7 @@ Rules:
         email,
         studenName,
         timeSpent,
-        exam.question_text,
-        studentAnswers,
+        evaluatedAnswers,
         studentAnswer,
       );
       const transcriptUrl = await this.uploadTranscript(
@@ -518,6 +531,9 @@ Rules:
         timeSubmitted: new Date().toISOString(),
         timeSpent,
       };
+      if (attempt && !attempt.submittedAt) {
+        attempt.submittedAt = submission.timeSubmitted;
+      }
       this.upsertSubmission(exam, submission);
       await exam.save();
       await unlink(tmpPath);
@@ -532,15 +548,6 @@ Rules:
     }
   }
 
-  private async generateScoreText(text: string): Promise<string> {
-    const scoreText = (
-      await this.aiGenerateWithRetry([this.markPrompt, text])
-    ).trim();
-    if (!/^\s*\d+\s*\/\s*\d+\s*$/.test(scoreText))
-      throw new BadRequestException(`Unexpected score format "${scoreText}"`);
-    return scoreText;
-  }
-
   private async createTranscriptPdf(
     _buffer: Buffer,
     scoreText: string,
@@ -548,103 +555,9 @@ Rules:
     email: string,
     studenName: string | undefined,
     timeSpent: number,
-    questions: ParsedQuestion[],
-    studentAnswers: StudentAnswerEntry[],
+    evaluatedAnswers: EvaluatedAnswer[],
     studentAnswerArtifact?: string,
   ): Promise<Buffer> {
-    const normalise = (value: unknown): string =>
-      typeof value === 'string' ? value.trim().toLowerCase() : '';
-
-    const buildAliases = (value: unknown): Set<string> => {
-      const aliases = new Set<string>();
-      if (
-        value === null ||
-        value === undefined ||
-        (typeof value !== 'string' &&
-          typeof value !== 'number' &&
-          typeof value !== 'boolean')
-      )
-        return aliases;
-
-      const asString = String(value);
-      const cleaned = normalise(asString);
-      if (cleaned) aliases.add(cleaned);
-      const letterMatch = asString.match(/^\s*([A-Z])(?=[).\s])/i);
-      if (letterMatch) aliases.add(letterMatch[1].toLowerCase());
-      return aliases;
-    };
-
-    const mergedAnswers = this.mergeStudentAnswerEntries(studentAnswers, []);
-    const answerByIndex = new Map<number, StudentAnswerEntry>();
-    const answerByQuestion = new Map<string, StudentAnswerEntry>();
-
-    const registerAnswer = (entry: StudentAnswerEntry) => {
-      const normalized = this.normaliseAnswerEntry(entry);
-      if (normalized.index >= 0) {
-        const existing = answerByIndex.get(normalized.index);
-        const next =
-          existing !== undefined
-            ? this.mergeSingleAnswer(existing, normalized)
-            : normalized;
-        answerByIndex.set(normalized.index, next);
-      }
-      if (normalized.question) {
-        const key = normalized.question.trim();
-        const existing = answerByQuestion.get(key);
-        const next =
-          existing !== undefined
-            ? this.mergeSingleAnswer(existing, normalized)
-            : normalized;
-        answerByQuestion.set(key, next);
-      }
-    };
-
-    mergedAnswers.forEach(registerAnswer);
-
-    const resolveAnswer = (
-      index: number,
-      question: ParsedQuestion,
-    ): { display: string; match: string } => {
-      const entry =
-        answerByIndex.get(index) ??
-        answerByQuestion.get(question.question.trim());
-      if (!entry) return { display: '', match: '' };
-
-      const choice = entry.choice?.trim() ?? '';
-      let answer = entry.answer?.trim() ?? '';
-
-      if (!answer && typeof entry.raw === 'string') {
-        answer = entry.raw.trim();
-      }
-
-      const isLetterChoice = /^[A-Z]$/i.test(choice);
-      if (
-        !answer &&
-        isLetterChoice &&
-        Array.isArray(question.options) &&
-        question.options.length
-      ) {
-        const optionIndex = choice.toUpperCase().charCodeAt(0) - 65;
-        if (optionIndex >= 0 && optionIndex < question.options.length) {
-          answer = question.options[optionIndex];
-        }
-      }
-
-      const match = answer || choice || '';
-      let display = answer;
-
-      if (!display && choice) {
-        display = choice;
-      } else if (display && choice && isLetterChoice) {
-        display = `${choice.toUpperCase()}. ${display}`;
-      }
-
-      return {
-        display: display.trim(),
-        match: match.trim(),
-      };
-    };
-
     const [scored, total] = scoreText
       .split('/')
       .map((v) => parseFloat(v.replace(/[^0-9.]/g, '')));
@@ -669,14 +582,13 @@ Rules:
 
     const docentiSeal = `data:image/svg+xml;base64,${Buffer.from(docentiSealSvg).toString('base64')}`;
 
-    const answerBlocks = questions
-      .map((q, i) => {
-        const { display: studentDisplay, match } = resolveAnswer(i, q);
-        const correctAnswer = q.answer ?? '';
-        const userAliases = buildAliases(match || studentDisplay);
-        const correctAliases = buildAliases(correctAnswer);
-        const optionList = (q.options ?? []).map((option, idx) => {
-          const optionAliases = buildAliases(option);
+    const answerBlocks = evaluatedAnswers
+      .map((entry, i) => {
+        const { question, studentDisplay, matchValue, correctAnswer } = entry;
+        const userAliases = this.buildAliases(matchValue || studentDisplay);
+        const correctAliases = this.buildAliases(correctAnswer);
+        const optionList = (question.options ?? []).map((option, idx) => {
+          const optionAliases = this.buildAliases(option);
           const isUserChoice = [...optionAliases].some((alias) =>
             userAliases.has(alias),
           );
@@ -694,11 +606,7 @@ Rules:
           return `<li class="${classes}"><span class="option__bullet">${bullet}</span><span class="option__text">${option}</span></li>`;
         });
 
-        const hasExactMatch =
-          correctAliases.size > 0 &&
-          [...correctAliases].some((alias) => userAliases.has(alias));
-
-        const answerSummary = q.options?.length
+        const answerSummary = question.options?.length
           ? `
               <div class="qa__answers">
                 <div class="qa__answer qa__answer--student">
@@ -706,7 +614,7 @@ Rules:
                 <p>${studentDisplay || 'N/A'}</p>
                 </div>
                 <div class="qa__answer qa__answer--correct">
-                  <h4>Docenti Key</h4>
+                  <h4>Answer Key</h4>
                   <p>${correctAnswer || 'N/A'}</p>
                 </div>
             </div>
@@ -718,21 +626,21 @@ Rules:
                 <p>${studentDisplay || 'N/A'}</p>
                 </div>
                 <div class="qa__answer qa__answer--correct">
-                  <h4>Docenti Guidance</h4>
+                  <h4>Reference Answer</h4>
                   <p>${correctAnswer || 'N/A'}</p>
                 </div>
             </div>
           `;
 
         return `
-          <section class="qa ${hasExactMatch ? 'qa--correct' : 'qa--incorrect'}">
+          <section class="qa ${entry.isCorrect ? 'qa--correct' : 'qa--incorrect'}">
             <header class="qa__header">
               <span class="qa__index">Question ${i + 1}</span>
-              <span class="qa__badge ${hasExactMatch ? 'qa__badge--success' : 'qa__badge--alert'}">
-                ${hasExactMatch ? 'Correct' : 'Review'}
+              <span class="qa__badge ${entry.isCorrect ? 'qa__badge--success' : 'qa__badge--alert'}">
+                ${entry.isScorable ? (entry.isCorrect ? 'Correct' : 'Review') : 'Review'}
               </span>
             </header>
-            <h3 class="qa__question">${q.question}</h3>
+            <h3 class="qa__question">${question.question}</h3>
             ${optionList.length ? `<ul class="qa__options">${optionList.join('')}</ul>` : ''}
             ${answerSummary}
           </section>
@@ -1821,6 +1729,187 @@ Rules:
       if (b.index < 0) return -1;
       return a.index - b.index;
     });
+  }
+
+  private findLatestActiveAttempt(
+    exam: ExamDocument,
+    email: string,
+  ): { attemptId: string; questionOrder: number[]; startedAt: string; submittedAt?: string } | undefined {
+    if (!Array.isArray(exam.attempts)) return undefined;
+
+    const activeAttempts = exam.attempts
+      .filter((attempt) => attempt.email === email && !attempt.submittedAt)
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+
+    return activeAttempts[0];
+  }
+
+  private getPresentedQuestions(
+    questions: ParsedQuestion[],
+    questionOrder?: number[],
+  ): ParsedQuestion[] {
+    if (!Array.isArray(questionOrder) || questionOrder.length === 0) {
+      return Array.isArray(questions) ? [...questions] : [];
+    }
+
+    const reordered = questionOrder
+      .map((idx) => questions[idx])
+      .filter((question) => question !== undefined);
+
+    return reordered.length ? reordered : [...questions];
+  }
+
+  private remapAnswersToCanonicalOrder(
+    answers: StudentAnswerEntry[],
+    questionOrder: number[] | undefined,
+    canonicalQuestions: ParsedQuestion[],
+  ): StudentAnswerEntry[] {
+    if (!Array.isArray(questionOrder) || questionOrder.length === 0) {
+      return this.mergeStudentAnswerEntries(answers, []);
+    }
+
+    const remapped = answers.map((entry) => {
+      const normalized = this.normaliseAnswerEntry(entry);
+      if (
+        normalized.index >= 0 &&
+        normalized.index < questionOrder.length &&
+        Number.isInteger(questionOrder[normalized.index])
+      ) {
+        const canonicalIndex = questionOrder[normalized.index];
+        const canonicalQuestion = canonicalQuestions[canonicalIndex];
+        return {
+          ...normalized,
+          index: canonicalIndex,
+          question: canonicalQuestion?.question ?? normalized.question,
+        };
+      }
+      return normalized;
+    });
+
+    return this.mergeStudentAnswerEntries(remapped, []);
+  }
+
+  private normaliseComparable(value: unknown): string {
+    return typeof value === 'string' ? value.trim().toLowerCase() : '';
+  }
+
+  private buildAliases(value: unknown): Set<string> {
+    const aliases = new Set<string>();
+    if (
+      value === null ||
+      value === undefined ||
+      (typeof value !== 'string' &&
+        typeof value !== 'number' &&
+        typeof value !== 'boolean')
+    ) {
+      return aliases;
+    }
+
+    const asString = String(value);
+    const cleaned = this.normaliseComparable(asString);
+    if (cleaned) aliases.add(cleaned);
+
+    const normalizedText = this.normaliseTextForMatch(asString);
+    if (normalizedText) aliases.add(normalizedText);
+
+    const letterMatch = asString.match(/^\s*([A-Z])(?=[).\s])/i);
+    if (letterMatch) aliases.add(letterMatch[1].toLowerCase());
+    return aliases;
+  }
+
+  private resolveAnswerForQuestion(
+    answers: StudentAnswerEntry[],
+    index: number,
+    question: ParsedQuestion,
+  ): { display: string; match: string } {
+    const answerByIndex = new Map<number, StudentAnswerEntry>();
+    const answerByQuestion = new Map<string, StudentAnswerEntry>();
+
+    for (const entry of answers) {
+      const normalized = this.normaliseAnswerEntry(entry);
+      if (normalized.index >= 0 && !answerByIndex.has(normalized.index)) {
+        answerByIndex.set(normalized.index, normalized);
+      }
+      if (normalized.question && !answerByQuestion.has(normalized.question.trim())) {
+        answerByQuestion.set(normalized.question.trim(), normalized);
+      }
+    }
+
+    const entry =
+      answerByIndex.get(index) ??
+      answerByQuestion.get(question.question.trim());
+    if (!entry) return { display: '', match: '' };
+
+    const choice = entry.choice?.trim() ?? '';
+    let answer = entry.answer?.trim() ?? '';
+
+    if (!answer && typeof entry.raw === 'string') {
+      answer = entry.raw.trim();
+    }
+
+    const isLetterChoice = /^[A-Z]$/i.test(choice);
+    if (
+      !answer &&
+      isLetterChoice &&
+      Array.isArray(question.options) &&
+      question.options.length
+    ) {
+      const optionIndex = choice.toUpperCase().charCodeAt(0) - 65;
+      if (optionIndex >= 0 && optionIndex < question.options.length) {
+        answer = question.options[optionIndex];
+      }
+    }
+
+    const match = answer || choice || '';
+    let display = answer;
+
+    if (!display && choice) {
+      display = choice;
+    } else if (display && choice && isLetterChoice) {
+      display = `${choice.toUpperCase()}. ${display}`;
+    }
+
+    return {
+      display: display.trim(),
+      match: match.trim(),
+    };
+  }
+
+  private evaluateAnswers(
+    questions: ParsedQuestion[],
+    studentAnswers: StudentAnswerEntry[],
+  ): EvaluatedAnswer[] {
+    return questions.map((question, index) => {
+      const { display, match } = this.resolveAnswerForQuestion(
+        studentAnswers,
+        index,
+        question,
+      );
+      const correctAnswer = question.answer ?? '';
+      const correctAliases = this.buildAliases(correctAnswer);
+      const studentAliases = this.buildAliases(match || display);
+      const isScorable =
+        question.type === 'multiple-choice' && correctAliases.size > 0;
+      const isCorrect =
+        isScorable &&
+        [...correctAliases].some((alias) => studentAliases.has(alias));
+
+      return {
+        index,
+        question,
+        studentDisplay: display,
+        matchValue: match,
+        correctAnswer,
+        isScorable,
+        isCorrect,
+      };
+    });
+  }
+
+  private formatScoreText(evaluatedAnswers: EvaluatedAnswer[]): string {
+    const total = evaluatedAnswers.filter((entry) => entry.isScorable).length;
+    const correct = evaluatedAnswers.filter((entry) => entry.isCorrect).length;
+    return `${correct}/${total}`;
   }
 
   private async uploadTranscript(

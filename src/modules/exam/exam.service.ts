@@ -28,6 +28,7 @@ import {
   STUDENT_OUT_EVENT,
 } from 'src/lib/events/events.constants';
 import { DocentiLogger } from 'src/lib/logger';
+import { ExamAttempt } from './interfaces/exam.interface';
 
 @Injectable()
 export class ExamService {
@@ -279,18 +280,24 @@ export class ExamService {
 
       this.events.emit(STUDENT_IN_EVENT, exam._id.toString());
 
-      const questions = Array.isArray(exam.question_text)
+      const canonicalQuestions = Array.isArray(exam.question_text)
         ? [...exam.question_text]
         : [];
-      for (let i = questions.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [questions[i], questions[j]] = [questions[j], questions[i]];
-      }
+      const activeAttempt = this.getOrCreateActiveAttempt(
+        exam,
+        lowercasedEmail,
+        canonicalQuestions.length,
+      );
+      const questions = activeAttempt.questionOrder
+        .map((idx) => canonicalQuestions[idx])
+        .filter((question) => question !== undefined);
+      await exam.save();
 
       return {
         id: exam._id,
         examName: exam.examName,
         examKey: exam.examKey,
+        attemptId: activeAttempt.attemptId,
         questions,
       };
     } catch (err) {
@@ -312,6 +319,38 @@ export class ExamService {
       this.logger.error('studentLogout failed', err as Error);
       throw err;
     }
+  }
+
+  private getOrCreateActiveAttempt(
+    exam: ExamDocument,
+    email: string,
+    questionCount: number,
+  ): ExamAttempt {
+    if (!Array.isArray(exam.attempts)) {
+      exam.attempts = [];
+    }
+
+    const existing = exam.attempts.find(
+      (attempt) => attempt.email === email && !attempt.submittedAt,
+    );
+    if (existing) {
+      return existing;
+    }
+
+    const questionOrder = Array.from({ length: questionCount }, (_, idx) => idx);
+    for (let i = questionOrder.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [questionOrder[i], questionOrder[j]] = [questionOrder[j], questionOrder[i]];
+    }
+
+    const attempt: ExamAttempt = {
+      attemptId: new Types.ObjectId().toHexString(),
+      email,
+      questionOrder,
+      startedAt: new Date().toISOString(),
+    };
+    exam.attempts.push(attempt);
+    return attempt;
   }
 
   async sendExamBack(id: string, email: string | string[]) {

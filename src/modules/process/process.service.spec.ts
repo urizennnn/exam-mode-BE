@@ -108,4 +108,87 @@ describe('ProcessService PDF answer extraction', () => {
 
     expect(entry).toMatchObject({ index: 0, answer: 'Blue', choice: 'B' });
   });
+
+  it('remaps presented-order answers back to canonical order before scoring', () => {
+    const questions: ParsedQuestion[] = [
+      {
+        type: 'multiple-choice',
+        question: 'Capital of France?',
+        options: ['Paris', 'Rome'],
+        answer: 'Paris',
+      },
+      {
+        type: 'multiple-choice',
+        question: 'What is 2 + 2?',
+        options: ['3', '4'],
+        answer: '4',
+      },
+    ];
+
+    const remapped = (service as any).remapAnswersToCanonicalOrder(
+      [
+        { index: 0, choice: 'B', answer: '4' },
+        { index: 1, choice: 'A', answer: 'Paris' },
+      ],
+      [1, 0],
+      questions,
+    ) as Array<{ index: number; question?: string; answer?: string; choice?: string }>;
+
+    expect(remapped).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          index: 0,
+          question: 'Capital of France?',
+          answer: 'Paris',
+          choice: 'A',
+        }),
+        expect.objectContaining({
+          index: 1,
+          question: 'What is 2 + 2?',
+          answer: '4',
+          choice: 'B',
+        }),
+      ]),
+    );
+
+    const evaluated = (service as any).evaluateAnswers(
+      questions,
+      remapped,
+    ) as Array<{ isScorable: boolean; isCorrect: boolean }>;
+
+    expect((service as any).formatScoreText(evaluated)).toBe('2/2');
+  });
+
+  it('scores only scorable multiple-choice questions with answer keys', () => {
+    const questions: ParsedQuestion[] = [
+      {
+        type: 'multiple-choice',
+        question: 'Pick the even number.',
+        options: ['1', '2', '3'],
+        answer: '2',
+      },
+      {
+        type: 'theory',
+        question: 'Explain your reasoning.',
+      },
+      {
+        type: 'multiple-choice',
+        question: 'Question missing key',
+        options: ['A', 'B'],
+      },
+    ];
+
+    const evaluated = (service as any).evaluateAnswers(questions, [
+      { index: 0, choice: 'B', answer: '2' },
+      { index: 1, answer: 'Because 2 is divisible by 2.' },
+      { index: 2, choice: 'A', answer: 'A' },
+    ]) as Array<{ isScorable: boolean; isCorrect: boolean }>;
+
+    expect(evaluated.map((entry) => entry.isScorable)).toEqual([
+      true,
+      false,
+      false,
+    ]);
+    expect((service as any).formatScoreText(evaluated)).toBe('1/1');
+  });
 });

@@ -7,6 +7,14 @@ export interface Submissions {
   transcript?: string;
 }
 
+export interface ExamAttempt {
+  attemptId: string;
+  email: string;
+  questionOrder: number[];
+  startedAt: string;
+  submittedAt?: string;
+}
+
 export interface ParsedQuestion {
   type: 'multiple-choice' | 'theory';
   question: string;
