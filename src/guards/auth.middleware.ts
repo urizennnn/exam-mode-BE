@@ -123,7 +123,7 @@ export class JwtGuard extends AuthGuard('jwt') implements CanActivate {
         if (decoded?.email) {
           await this.userModel.updateOne(
             { email: decoded.email },
-            { isSignedIn: false },
+            { isSignedIn: false, sessionId: null },
           );
           this.logger.warn(
             `JWT expired – reset isSignedIn for ${decoded.email}`,
@@ -136,6 +136,13 @@ export class JwtGuard extends AuthGuard('jwt') implements CanActivate {
     const user = await this.userModel.findOne({ email: payload.email });
     if (!user) {
       throw new HttpException('User not found', HttpStatus.UNAUTHORIZED);
+    }
+
+    if (payload.sessionId && user.sessionId !== payload.sessionId) {
+      throw new HttpException(
+        'Session ended – signed in from another device',
+        HttpStatus.UNAUTHORIZED,
+      );
     }
 
     request.user = { id: user._id, role: user.role };

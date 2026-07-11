@@ -106,9 +106,8 @@ export class UserService {
       }
 
       if (user.sessionId) {
-        this.logger.warn(`User already signed in: ${dto.email}`);
-        throw new BadRequestException(
-          'Already signed in from another device/session',
+        this.logger.warn(
+          `User ${dto.email} re-logging in; invalidating previous session`,
         );
       }
 
